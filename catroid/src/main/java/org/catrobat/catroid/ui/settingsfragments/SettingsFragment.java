@@ -131,6 +131,16 @@ public class SettingsFragment extends PreferenceFragment {
 	public static final String RASPI_PORT = "setting_raspi_port_preference";
 	public static final String RASPI_VERSION_SPINNER = "setting_raspi_version_preference";
 
+	public static final String MQTT_SCREEN_KEY = "settings_mqtt_screen";
+	public static final String SETTINGS_SHOW_MQTT_BRICKS = "setting_mqtt_bricks";
+	public static final String MQTT_CONNECTION_SETTINGS_CATEGORY = "setting_mqtt_category";
+	public static final String MQTT_HOST = "setting_mqtt_host";
+	public static final String MQTT_PORT = "setting_mqtt_port";
+	public static final String MQTT_TLS = "setting_mqtt_tls";
+	public static final String MQTT_USERNAME = "setting_mqtt_username";
+	public static final String MQTT_PASSWORD = "setting_mqtt_password";
+	public static final String MQTT_CLIENT_ID = "setting_mqtt_client_id";
+
 	public static final String SETTINGS_CRASH_REPORTS = "setting_enable_crash_reports";
 	public static final String TAG = SettingsFragment.class.getSimpleName();
 
@@ -406,6 +416,38 @@ public class SettingsFragment extends PreferenceFragment {
 
 	public static boolean isRaspiSharedPreferenceEnabled(Context context) {
 		return getBooleanSharedPreference(false, SETTINGS_SHOW_RASPI_BRICKS, context);
+	}
+
+	public static boolean isMqttSharedPreferenceEnabled(Context context) {
+		return getBooleanSharedPreference(false, SETTINGS_SHOW_MQTT_BRICKS, context);
+	}
+
+	public static String getMqttHost(Context context) {
+		return getSharedPreferences(context).getString(MQTT_HOST, "192.168.0.1");
+	}
+
+	public static int getMqttPort(Context context) {
+		try {
+			return Integer.parseInt(getSharedPreferences(context).getString(MQTT_PORT, "1883"));
+		} catch (NumberFormatException e) {
+			return 1883;
+		}
+	}
+
+	public static boolean isMqttTlsEnabled(Context context) {
+		return getBooleanSharedPreference(false, MQTT_TLS, context);
+	}
+
+	public static String getMqttUsername(Context context) {
+		return getSharedPreferences(context).getString(MQTT_USERNAME, "");
+	}
+
+	public static String getMqttPassword(Context context) {
+		return getSharedPreferences(context).getString(MQTT_PASSWORD, "");
+	}
+
+	public static String getMqttClientId(Context context) {
+		return getSharedPreferences(context).getString(MQTT_CLIENT_ID, "");
 	}
 
 	public static boolean isNfcSharedPreferenceEnabled(Context context) {
