@@ -272,6 +272,12 @@ public class SettingsFragment extends PreferenceFragment {
 						.addToBackStack(RaspberryPiSettingsFragment.TAG)
 						.commit();
 				break;
+			case MQTT_SCREEN_KEY:
+				getFragmentManager().beginTransaction()
+						.replace(R.id.content_frame, new MqttSettingsFragment(), MqttSettingsFragment.TAG)
+						.addToBackStack(MqttSettingsFragment.TAG)
+						.commit();
+				break;
 		}
 		return super.onPreferenceTreeClick(preferenceScreen, preference);
 	}
