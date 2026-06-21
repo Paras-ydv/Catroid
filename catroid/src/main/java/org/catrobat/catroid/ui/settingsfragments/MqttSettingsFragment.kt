@@ -1,6 +1,6 @@
 /*
  * Catroid: An on-device visual programming system for Android devices
- * Copyright (C) 2010-2025 The Catrobat Team
+ * Copyright (C) 2010-2026 The Catrobat Team
  * (<http://developer.catrobat.org/credits>)
  *
  * This program is free software: you can redistribute it and/or modify
@@ -30,7 +30,6 @@ import android.preference.Preference
 import android.preference.PreferenceCategory
 import android.preference.PreferenceFragment
 import android.widget.Toast
-import androidx.annotation.Nullable
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatActivity
 import org.catrobat.catroid.R
@@ -49,7 +48,7 @@ class MqttSettingsFragment : PreferenceFragment() {
         (activity as AppCompatActivity).supportActionBar?.title = preferenceScreen.title
     }
 
-    override fun onActivityCreated(@Nullable savedInstanceState: Bundle?) {
+    override fun onActivityCreated(savedInstanceState: Bundle?) {
         super.onActivityCreated(savedInstanceState)
         SettingsFragment.setToChosenLanguage(activity)
         addPreferencesFromResource(R.xml.mqtt_preferences)
@@ -91,13 +90,16 @@ class MqttSettingsFragment : PreferenceFragment() {
     }
 
     companion object {
+        private const val MIN_PORT = 1
+        private const val MAX_PORT = 65_535
+
         @JvmField val TAG: String = MqttSettingsFragment::class.java.simpleName
 
         @VisibleForTesting
         @JvmStatic
         fun isValidPort(value: String): Boolean {
             val port = value.toIntOrNull() ?: return false
-            return port in 1..65535
+            return port in MIN_PORT..MAX_PORT
         }
     }
 }

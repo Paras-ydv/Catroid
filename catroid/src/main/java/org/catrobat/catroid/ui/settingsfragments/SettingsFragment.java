@@ -141,6 +141,8 @@ public class SettingsFragment extends PreferenceFragment {
 	public static final String MQTT_PASSWORD = "setting_mqtt_password";
 	public static final String MQTT_CLIENT_ID = "setting_mqtt_client_id";
 
+	private static final String DEFAULT_MQTT_HOST = "192.168.0.1";
+
 	public static final String SETTINGS_CRASH_REPORTS = "setting_enable_crash_reports";
 	public static final String TAG = SettingsFragment.class.getSimpleName();
 
@@ -429,7 +431,7 @@ public class SettingsFragment extends PreferenceFragment {
 	}
 
 	public static String getMqttHost(Context context) {
-		return getSharedPreferences(context).getString(MQTT_HOST, "192.168.0.1");
+		return getSharedPreferences(context).getString(MQTT_HOST, DEFAULT_MQTT_HOST);
 	}
 
 	public static int getMqttPort(Context context) {
