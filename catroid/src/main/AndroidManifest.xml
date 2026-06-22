@@ -263,7 +263,6 @@
         <service android:name=".transfers.MediaDownloadService" />
         <service android:name=".utils.notifications.StatusBarNotificationManager$NotificationActionService" />
         <service android:name=".cast.CastService"/>
-        <service android:name="org.eclipse.paho.android.service.MqttService" />
 
         <provider
             android:authorities="${applicationId}.fileProvider"

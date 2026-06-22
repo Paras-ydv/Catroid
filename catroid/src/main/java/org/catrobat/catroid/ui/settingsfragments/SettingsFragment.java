@@ -141,7 +141,6 @@ public class SettingsFragment extends PreferenceFragment {
 	public static final String MQTT_PASSWORD = "setting_mqtt_password";
 	public static final String MQTT_CLIENT_ID = "setting_mqtt_client_id";
 
-	private static final String DEFAULT_MQTT_HOST = "192.168.0.1";
 
 	public static final String SETTINGS_CRASH_REPORTS = "setting_enable_crash_reports";
 	public static final String TAG = SettingsFragment.class.getSimpleName();
@@ -220,6 +219,12 @@ public class SettingsFragment extends PreferenceFragment {
 					(CheckBoxPreference) findPreference(SETTINGS_TEST_BRICKS);
 			testPreference.setEnabled(BuildConfig.DEBUG);
 			screen.removePreference(testPreference);
+		}
+
+		if (!BuildConfig.FEATURE_MQTT_ENABLED) {
+			PreferenceScreen mqttPreference = (PreferenceScreen) findPreference(MQTT_SCREEN_KEY);
+			mqttPreference.setEnabled(false);
+			screen.removePreference(mqttPreference);
 		}
 
 		setCorrectPreferenceViewForEmbroidery();
@@ -431,7 +436,7 @@ public class SettingsFragment extends PreferenceFragment {
 	}
 
 	public static String getMqttHost(Context context) {
-		return getSharedPreferences(context).getString(MQTT_HOST, DEFAULT_MQTT_HOST);
+		return getSharedPreferences(context).getString(MQTT_HOST, "");
 	}
 
 	public static int getMqttPort(Context context) {
