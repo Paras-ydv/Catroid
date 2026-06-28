@@ -125,7 +125,6 @@ public class SettingsFragment extends PreferenceFragment {
 	public static final String DRONE_ROTATION_SPEED = "setting_drone_rotation_speed";
 	public static final String DRONE_TILT_ANGLE = "setting_drone_tilt_angle";
 
-
 	public static final String RASPI_CONNECTION_SETTINGS_CATEGORY = "setting_raspi_connection_settings_category";
 	public static final String RASPI_HOST = "setting_raspi_host_preference";
 	public static final String RASPI_PORT = "setting_raspi_port_preference";
@@ -140,7 +139,6 @@ public class SettingsFragment extends PreferenceFragment {
 	public static final String MQTT_USERNAME = "setting_mqtt_username";
 	public static final String MQTT_PASSWORD = "setting_mqtt_password";
 	public static final String MQTT_CLIENT_ID = "setting_mqtt_client_id";
-
 
 	public static final String SETTINGS_CRASH_REPORTS = "setting_enable_crash_reports";
 	public static final String TAG = SettingsFragment.class.getSimpleName();
@@ -436,7 +434,7 @@ public class SettingsFragment extends PreferenceFragment {
 	}
 
 	public static String getMqttHost(Context context) {
-		return getSharedPreferences(context).getString(MQTT_HOST, "");
+		return getSharedPreferences(context).getString(MQTT_HOST, context.getString(R.string.default_mqtt_host));
 	}
 
 	public static int getMqttPort(Context context) {

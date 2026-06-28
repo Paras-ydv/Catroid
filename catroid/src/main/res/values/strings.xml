@@ -1546,6 +1546,7 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="preference_title_mqtt_password">Password</string>
     <string formatted="false" name="preference_title_mqtt_client_id">Client ID</string>
     <string formatted="false" name="preference_mqtt_port_invalid">Port must be a number between 1 and 65535</string>
+    <string name="default_mqtt_host" translatable="false">192.168.0.1</string>
     <!--  -->
 
     <!-- Lego Mindstorms Strings -->
