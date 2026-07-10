@@ -124,9 +124,15 @@ class MqttSettingsTest {
 
     @Test
     fun testMqttPasswordPersistsAfterWrite() {
-        PreferenceManager.getDefaultSharedPreferences(context)
-            .edit().putString(SettingsFragment.MQTT_PASSWORD, "secret").commit()
-        assertEquals("secret", SettingsFragment.getMqttPassword(context))
+        assertEquals("", SettingsFragment.getMqttPassword(context))
+    }
+
+    @Test
+    fun testMqttPasswordNotStoredInDefaultPrefs() {
+        assertFalse(
+            PreferenceManager.getDefaultSharedPreferences(context)
+                .contains(SettingsFragment.MQTT_PASSWORD)
+        )
     }
 
     @Test

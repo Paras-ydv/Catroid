@@ -59,6 +59,8 @@ import java.util.Locale;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.FragmentActivity;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKeys;
 
 import static org.catrobat.catroid.CatroidApplication.defaultSystemLanguage;
 import static org.catrobat.catroid.common.SharedPreferenceKeys.DEVICE_LANGUAGE;
@@ -139,6 +141,7 @@ public class SettingsFragment extends PreferenceFragment {
 	public static final String MQTT_USERNAME = "setting_mqtt_username";
 	public static final String MQTT_PASSWORD = "setting_mqtt_password";
 	public static final String MQTT_CLIENT_ID = "setting_mqtt_client_id";
+	public static final String MQTT_ENCRYPTED_PREFS = "mqtt_encrypted_prefs";
 
 	public static final String SETTINGS_CRASH_REPORTS = "setting_enable_crash_reports";
 	public static final String TAG = SettingsFragment.class.getSimpleName();
@@ -454,7 +457,18 @@ public class SettingsFragment extends PreferenceFragment {
 	}
 
 	public static String getMqttPassword(Context context) {
-		return getSharedPreferences(context).getString(MQTT_PASSWORD, "");
+		try {
+			SharedPreferences encryptedPrefs = EncryptedSharedPreferences.create(
+					MQTT_ENCRYPTED_PREFS,
+					MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
+					context,
+					EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+					EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+			);
+			return encryptedPrefs.getString(MQTT_PASSWORD, "");
+		} catch (Exception e) {
+			return "";
+		}
 	}
 
 	public static String getMqttClientId(Context context) {

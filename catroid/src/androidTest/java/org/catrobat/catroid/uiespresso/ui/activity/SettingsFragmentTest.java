@@ -265,7 +265,7 @@ public class SettingsFragmentTest {
 		onData(PreferenceMatchers.withTitle(R.string.preference_title_enable_mqtt_bricks))
 				.perform(click());
 
-		checkPreference(R.string.preference_title_enable_mqtt_bricks, SETTINGS_SHOW_MQTT_BRICKS);
+		checkPreference(R.string.preference_title_mqtt_enabled, SETTINGS_SHOW_MQTT_BRICKS);
 	}
 
 	@Category({Cat.AppUi.class, Level.Smoke.class, Cat.Gadgets.class})
