@@ -32,29 +32,20 @@ import android.preference.PreferenceFragment
 import android.widget.Toast
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatActivity
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import org.catrobat.catroid.R
+import org.catrobat.catroid.ui.recyclerview.repository.MqttPasswordRepository
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_CONNECTION_SETTINGS_CATEGORY
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_CLIENT_ID
-import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_ENCRYPTED_PREFS
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_HOST
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_PASSWORD
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_PORT
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_USERNAME
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.SETTINGS_SHOW_MQTT_BRICKS
+import org.koin.android.ext.android.inject
 
 class MqttSettingsFragment : PreferenceFragment() {
 
-    private val encryptedPrefs by lazy {
-        EncryptedSharedPreferences.create(
-            MQTT_ENCRYPTED_PREFS,
-            MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-            activity?.applicationContext ?: throw IllegalStateException("Fragment not attached to an activity"),
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    }
+    private val mqttPasswordRepository: MqttPasswordRepository by inject()
 
     override fun onResume() {
         super.onResume()
@@ -92,12 +83,9 @@ class MqttSettingsFragment : PreferenceFragment() {
 
         val passwordPreference = findPreference(MQTT_PASSWORD) as EditTextPreference
         passwordPreference.isPersistent = false
-        passwordPreference.text = encryptedPrefs.getString(MQTT_PASSWORD, "")
+        passwordPreference.text = mqttPasswordRepository.getPassword()
         passwordPreference.onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
-            with(encryptedPrefs.edit()) {
-                putString(MQTT_PASSWORD, newValue.toString())
-                apply()
-            }
+            mqttPasswordRepository.setPassword(newValue.toString())
             true
         }
     }

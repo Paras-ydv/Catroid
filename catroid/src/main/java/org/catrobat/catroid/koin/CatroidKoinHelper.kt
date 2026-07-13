@@ -47,6 +47,8 @@ import org.catrobat.catroid.ui.recyclerview.repository.DefaultLocalHashVersionRe
 import org.catrobat.catroid.ui.recyclerview.repository.DefaultFeaturedProjectsRepository
 import org.catrobat.catroid.ui.recyclerview.repository.DefaultProjectCategoriesRepository
 import org.catrobat.catroid.ui.recyclerview.repository.FeaturedProjectsRepository
+import org.catrobat.catroid.ui.recyclerview.repository.MqttPasswordRepository
+import org.catrobat.catroid.ui.recyclerview.repository.DefaultMqttPasswordRepository
 import org.catrobat.catroid.ui.recyclerview.repository.ProjectCategoriesRepository
 import org.catrobat.catroid.ui.recyclerview.viewmodel.MainFragmentViewModel
 import org.catrobat.catroid.utils.MobileServiceAvailability
@@ -94,6 +96,10 @@ val viewModelModules = module {
 val repositoryModules = module {
     single {
         DefaultLocalHashVersionRepository(androidContext()) as LocalHashVersionRepository
+    }
+
+    single {
+        DefaultMqttPasswordRepository(androidContext()) as MqttPasswordRepository
     }
 
     single {

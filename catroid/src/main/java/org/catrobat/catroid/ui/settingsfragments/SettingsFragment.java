@@ -59,8 +59,7 @@ import java.util.Locale;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.FragmentActivity;
-import androidx.security.crypto.EncryptedSharedPreferences;
-import androidx.security.crypto.MasterKeys;
+import org.catrobat.catroid.ui.recyclerview.repository.MqttPasswordRepository;
 
 import static org.catrobat.catroid.CatroidApplication.defaultSystemLanguage;
 import static org.catrobat.catroid.common.SharedPreferenceKeys.DEVICE_LANGUAGE;
@@ -457,18 +456,8 @@ public class SettingsFragment extends PreferenceFragment {
 	}
 
 	public static String getMqttPassword(Context context) {
-		try {
-			SharedPreferences encryptedPrefs = EncryptedSharedPreferences.create(
-					MQTT_ENCRYPTED_PREFS,
-					MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-					context,
-					EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-					EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-			);
-			return encryptedPrefs.getString(MQTT_PASSWORD, "");
-		} catch (Exception e) {
-			return "";
-		}
+		// context parameter kept for API consistency with other getMqtt*() methods
+		return inject(MqttPasswordRepository.class).getValue().getPassword();
 	}
 
 	public static String getMqttClientId(Context context) {

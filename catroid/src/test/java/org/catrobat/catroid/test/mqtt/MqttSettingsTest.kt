@@ -25,6 +25,10 @@ package org.catrobat.catroid.test.mqtt
 
 import android.os.Build
 import android.preference.PreferenceManager
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import org.catrobat.catroid.ui.recyclerview.repository.MqttPasswordRepository
 import org.catrobat.catroid.ui.settingsfragments.MqttSettingsFragment
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment
 import org.junit.Assert.assertEquals
@@ -33,19 +37,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.dsl.module
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.junit.After
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [Build.VERSION_CODES.P], instrumentedPackages = [])
 class MqttSettingsTest {
 
+    private val mockMqttPasswordRepository = mockk<MqttPasswordRepository>(relaxed = true)
     private val context get() = RuntimeEnvironment.getApplication()
 
     @Before
     fun setUp() {
         PreferenceManager.getDefaultSharedPreferences(context).edit().clear().commit()
+        stopKoin()
+        startKoin {
+            modules(module {
+                single<MqttPasswordRepository> { mockMqttPasswordRepository }
+            })
+        }
+    }
+
+    @After
+    fun tearDown() {
+        stopKoin()
     }
 
     // --- Default value tests ---
@@ -77,7 +97,9 @@ class MqttSettingsTest {
 
     @Test
     fun testMqttPasswordDefaultIsEmpty() {
+        every { mockMqttPasswordRepository.getPassword() } returns ""
         assertEquals("", SettingsFragment.getMqttPassword(context))
+        verify(exactly = 1) { mockMqttPasswordRepository.getPassword() }
     }
 
     @Test
@@ -124,7 +146,15 @@ class MqttSettingsTest {
 
     @Test
     fun testMqttPasswordPersistsAfterWrite() {
-        assertEquals("", SettingsFragment.getMqttPassword(context))
+        every { mockMqttPasswordRepository.getPassword() } returns "secret"
+        assertEquals("secret", SettingsFragment.getMqttPassword(context))
+        verify(exactly = 1) { mockMqttPasswordRepository.getPassword() }
+    }
+
+    @Test
+    fun testMqttPasswordSetPasswordDelegatesToRepository() {
+        mockMqttPasswordRepository.setPassword("secret")
+        verify(exactly = 1) { mockMqttPasswordRepository.setPassword("secret") }
     }
 
     @Test
