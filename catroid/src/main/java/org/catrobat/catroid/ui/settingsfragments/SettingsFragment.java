@@ -455,8 +455,7 @@ public class SettingsFragment extends PreferenceFragment {
 		return getSharedPreferences(context).getString(MQTT_USERNAME, "");
 	}
 
-	public static String getMqttPassword(Context context) {
-		// context parameter kept for API consistency with other getMqtt*() methods
+	public static String getMqttPassword() {
 		return inject(MqttPasswordRepository.class).getValue().getPassword();
 	}
 

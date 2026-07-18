@@ -98,7 +98,7 @@ class MqttSettingsTest {
     @Test
     fun testMqttPasswordDefaultIsEmpty() {
         every { mockMqttPasswordRepository.getPassword() } returns ""
-        assertEquals("", SettingsFragment.getMqttPassword(context))
+        assertEquals("", SettingsFragment.getMqttPassword())
         verify(exactly = 1) { mockMqttPasswordRepository.getPassword() }
     }
 
@@ -147,14 +147,8 @@ class MqttSettingsTest {
     @Test
     fun testMqttPasswordPersistsAfterWrite() {
         every { mockMqttPasswordRepository.getPassword() } returns "secret"
-        assertEquals("secret", SettingsFragment.getMqttPassword(context))
+        assertEquals("secret", SettingsFragment.getMqttPassword())
         verify(exactly = 1) { mockMqttPasswordRepository.getPassword() }
-    }
-
-    @Test
-    fun testMqttPasswordSetPasswordDelegatesToRepository() {
-        mockMqttPasswordRepository.setPassword("secret")
-        verify(exactly = 1) { mockMqttPasswordRepository.setPassword("secret") }
     }
 
     @Test

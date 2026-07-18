@@ -23,12 +23,8 @@
 
 package org.catrobat.catroid.ui.recyclerview.repository
 
-import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
-import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_ENCRYPTED_PREFS
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_PASSWORD
 
 interface MqttPasswordRepository {
@@ -37,25 +33,13 @@ interface MqttPasswordRepository {
     fun clearPassword()
 }
 
-class DefaultMqttPasswordRepository(context: Context) : MqttPasswordRepository {
+class DefaultMqttPasswordRepository(private val prefs: SharedPreferences) : MqttPasswordRepository {
 
-    private val encryptedPrefs: SharedPreferences by lazy {
-        EncryptedSharedPreferences.create(
-            MQTT_ENCRYPTED_PREFS,
-            MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-            context,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    }
+    override fun getPassword() = prefs.getString(MQTT_PASSWORD, "").orEmpty()
 
-    override fun getPassword() = encryptedPrefs.getString(MQTT_PASSWORD, "").orEmpty()
+    override fun setPassword(password: String) =
+        prefs.edit { putString(MQTT_PASSWORD, password) }
 
-    override fun setPassword(password: String) {
-        encryptedPrefs.edit { putString(MQTT_PASSWORD, password) }
-    }
-
-    override fun clearPassword() {
-        encryptedPrefs.edit { remove(MQTT_PASSWORD) }
-    }
+    override fun clearPassword() =
+        prefs.edit { remove(MQTT_PASSWORD) }
 }

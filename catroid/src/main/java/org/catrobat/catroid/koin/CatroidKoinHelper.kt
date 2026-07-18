@@ -27,6 +27,8 @@ import android.app.Application
 import com.google.android.gms.common.GoogleApiAvailability
 import com.huawei.hms.api.HuaweiApiAvailability
 import androidx.room.Room
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 import androidx.work.WorkManager
 import org.catrobat.catroid.ProjectManager
 import org.catrobat.catroid.db.AppDatabase
@@ -50,6 +52,7 @@ import org.catrobat.catroid.ui.recyclerview.repository.FeaturedProjectsRepositor
 import org.catrobat.catroid.ui.recyclerview.repository.MqttPasswordRepository
 import org.catrobat.catroid.ui.recyclerview.repository.DefaultMqttPasswordRepository
 import org.catrobat.catroid.ui.recyclerview.repository.ProjectCategoriesRepository
+import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_ENCRYPTED_PREFS
 import org.catrobat.catroid.ui.recyclerview.viewmodel.MainFragmentViewModel
 import org.catrobat.catroid.utils.MobileServiceAvailability
 import org.catrobat.catroid.utils.NetworkConnectionMonitor
@@ -98,8 +101,16 @@ val repositoryModules = module {
         DefaultLocalHashVersionRepository(androidContext()) as LocalHashVersionRepository
     }
 
-    single {
-        DefaultMqttPasswordRepository(androidContext()) as MqttPasswordRepository
+    single<MqttPasswordRepository> {
+        DefaultMqttPasswordRepository(
+            EncryptedSharedPreferences.create(
+                MQTT_ENCRYPTED_PREFS,
+                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
+                androidContext(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        )
     }
 
     single {
