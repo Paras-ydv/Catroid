@@ -157,6 +157,7 @@ android {
         buildConfigField "boolean", "FEATURE_NFC_ENABLED", "true"
         buildConfigField "boolean", "FEATURE_POCKETMUSIC_ENABLED", "true"
         buildConfigField "boolean", "FEATURE_RASPI_ENABLED", "true"
+        buildConfigField "boolean", "FEATURE_MQTT_ENABLED", "true"
         buildConfigField "boolean", "FEATURE_SCRATCH_CONVERTER_ENABLED", "true"
         buildConfigField "boolean", "FEATURE_USER_REPORTERS_ENABLED", "true"
         buildConfigField "boolean", "FEATURE_MULTIPLAYER_VARIABLES_ENABLED", "true"
@@ -422,6 +423,9 @@ dependencies {
 
     implementation 'com.google.guava:guava:28.2-android'
     implementation 'com.google.code.gson:gson:2.8.7'
+
+    // MQTT
+    implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
 
     implementation 'com.koushikdutta.async:androidasync:2.2.1'
     implementation 'com.squareup.picasso:picasso:2.71828'
