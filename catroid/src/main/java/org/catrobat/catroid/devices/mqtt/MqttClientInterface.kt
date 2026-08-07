@@ -34,4 +34,6 @@ interface MqttClientInterface {
     fun close()
     fun setCallback(callback: MqttCallback)
     fun publish(topic: String, message: MqttMessage)
+    fun subscribe(topic: String, qos: Int)
+    fun unsubscribe(topic: String)
 }
