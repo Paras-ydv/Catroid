@@ -32,7 +32,10 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 
-class MqttManager(private var mqttClient: MqttClientInterface? = null) {
+class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClientFactory) {
+
+    @Volatile
+    private var mqttClient: MqttClientInterface? = null
 
     val isConnected: Boolean
         get() = mqttClient?.isConnected == true
@@ -49,16 +52,25 @@ class MqttManager(private var mqttClient: MqttClientInterface? = null) {
 
     fun connectFromContext(context: Context) = connect(MqttConnectionConfig.fromContext(context))
 
-    fun connect(config: MqttConnectionConfig): Boolean {
+    fun connect(config: MqttConnectionConfig): Boolean = synchronized(this) {
         if (isConnected) return true
         if (config.host.isBlank()) {
             Log.e(TAG, "Cannot connect: host is blank")
             return false
         }
+        val currentClient = mqttClient
+        if (currentClient != null && !currentClient.isConnected) {
+            try {
+                currentClient.close()
+            } catch (e: MqttException) {
+                Log.e(TAG, "Failed to close stale client before reconnect", e)
+            }
+            mqttClient = null
+        }
         return try {
             val brokerUrl = buildServerUri(config.host, config.port, config.useTls)
             val resolvedClientId = config.clientId.ifEmpty { MqttClient.generateClientId() }
-            val client = mqttClient ?: PahoMqttClient(brokerUrl, resolvedClientId).also { mqttClient = it }
+            val client = mqttClient ?: clientFactory.create(brokerUrl, resolvedClientId).also { mqttClient = it }
             client.setCallback(callback)
             client.connect(buildConnectOptions(config.username, config.password))
             val connected = client.isConnected
@@ -77,15 +89,17 @@ class MqttManager(private var mqttClient: MqttClientInterface? = null) {
     }
 
     fun disconnect() {
-        if (!isConnected) return
-        try {
-            mqttClient?.disconnect()
-            mqttClient?.close()
-            Log.d(TAG, "Disconnected and closed client")
-        } catch (e: MqttException) {
-            Log.e(TAG, "Error during disconnect", e)
-        } finally {
-            mqttClient = null
+        synchronized(this) {
+            if (mqttClient == null) return
+            try {
+                mqttClient?.disconnect()
+                mqttClient?.close()
+                Log.d(TAG, "Disconnected and closed client")
+            } catch (e: MqttException) {
+                Log.e(TAG, "Error during disconnect", e)
+            } finally {
+                mqttClient = null
+            }
         }
     }
 
