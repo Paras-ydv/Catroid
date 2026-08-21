@@ -484,74 +484,96 @@ class MqttManagerTest {
         assertTrue(fakeClient.subscribeCalled)
     }
 
-    // --- listeners ---
+    // --- topic based listener routing ---
 
     @Test
-    fun testDispatchDeliversTopicAndPayloadToListener() {
+    fun testDispatchDeliversTopicAndPayloadToRegisteredListener() {
         val listener = FakeListener()
-        manager.addListener(listener)
+        manager.register("home/temp", listener)
         manager.dispatchMessage("home/temp", "22.5")
         assertEquals(listOf("home/temp" to "22.5"), listener.received)
     }
 
     @Test
-    fun testDispatchDeliversToAllRegisteredListeners() {
+    fun testDispatchDeliversToAllListenersOfSameTopic() {
         val first = FakeListener()
         val second = FakeListener()
-        manager.addListener(first)
-        manager.addListener(second)
+        manager.register("home/temp", first)
+        manager.register("home/temp", second)
         manager.dispatchMessage("home/temp", "22.5")
         assertEquals(1, first.received.size)
         assertEquals(1, second.received.size)
     }
 
     @Test
-    fun testRemovedListenerStopsReceivingMessages() {
+    fun testDispatchDoesNotDeliverToListenerOfDifferentTopic() {
         val listener = FakeListener()
-        manager.addListener(listener)
-        manager.removeListener(listener)
+        manager.register("home/temp", listener)
+        manager.dispatchMessage("home/light", "ON")
+        assertTrue(listener.received.isEmpty())
+    }
+
+    @Test
+    fun testDispatchIgnoresUnknownTopic() {
+        manager.dispatchMessage("home/unknown", "payload")
+    }
+
+    @Test
+    fun testUnregisteredListenerStopsReceivingMessages() {
+        val listener = FakeListener()
+        manager.register("home/temp", listener)
+        manager.unregister("home/temp", listener)
         manager.dispatchMessage("home/temp", "22.5")
         assertTrue(listener.received.isEmpty())
     }
 
     @Test
-    fun testRemovingOneListenerKeepsOthers() {
+    fun testUnregisteringOneListenerKeepsOthersOnSameTopic() {
         val removed = FakeListener()
         val kept = FakeListener()
-        manager.addListener(removed)
-        manager.addListener(kept)
-        manager.removeListener(removed)
+        manager.register("home/temp", removed)
+        manager.register("home/temp", kept)
+        manager.unregister("home/temp", removed)
         manager.dispatchMessage("home/temp", "22.5")
         assertTrue(removed.received.isEmpty())
         assertEquals(1, kept.received.size)
     }
 
     @Test
-    fun testListenerCanBeReAddedAfterRemoval() {
+    fun testUnregisteringLastListenerDropsTopic() {
         val listener = FakeListener()
-        manager.addListener(listener)
-        manager.removeListener(listener)
-        manager.addListener(listener)
+        manager.register("home/temp", listener)
+        manager.unregister("home/temp", listener)
+        assertTrue(manager.registeredTopics.isEmpty())
+    }
+
+    @Test
+    fun testListenerCanBeReRegisteredAfterUnregister() {
+        val listener = FakeListener()
+        manager.register("home/temp", listener)
+        manager.unregister("home/temp", listener)
+        manager.register("home/temp", listener)
         manager.dispatchMessage("home/temp", "22.5")
         assertEquals(1, listener.received.size)
     }
 
     @Test
-    fun testRemovingUnregisteredListenerDoesNotCrash() {
-        manager.removeListener(FakeListener())
+    fun testRegisterRejectsBlankTopic() {
+        manager.register("  ", FakeListener())
+        assertTrue(manager.registeredTopics.isEmpty())
     }
 
     @Test
-    fun testDispatchWithNoListenersDoesNotCrash() {
-        manager.dispatchMessage("home/temp", "22.5")
+    fun testUnregisteringFromUnknownTopicDoesNotCrash() {
+        manager.unregister("home/nothing", FakeListener())
     }
 
     @Test
     fun testThrowingListenerDoesNotPreventOtherListeners() {
         val throwing = MqttListener { _, _ -> throw IllegalStateException("boom") }
         val healthy = FakeListener()
-        manager.addListener(throwing)
-        manager.addListener(healthy)
+        manager.register("home/temp", throwing)
+        manager.register("home/temp", healthy)
         manager.dispatchMessage("home/temp", "22.5")
         assertEquals(1, healthy.received.size)
     }

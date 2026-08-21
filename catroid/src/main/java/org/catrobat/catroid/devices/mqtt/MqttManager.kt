@@ -43,28 +43,49 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
 
     internal val activeSubscriptions: Set<String> get() = subscriptions.keys.toSet()
 
-    private val listeners = CopyOnWriteArraySet<MqttListener>()
+    private val listeners = ConcurrentHashMap<String, CopyOnWriteArraySet<MqttListener>>()
 
-    fun addListener(listener: MqttListener) {
-        if (listeners.add(listener)) {
-            Log.d(TAG, "Listener registered")
+    internal val registeredTopics: Set<String> get() = listeners.keys.toSet()
+
+    /**
+     * Registers [listener] for messages arriving on [topic]. Registration is
+     * independent of the broker subscription: callers subscribe so the broker
+     * delivers the topic, and register so the delivered message reaches them.
+     */
+    fun register(topic: String, listener: MqttListener) {
+        if (topic.isBlank()) {
+            Log.e(TAG, "Cannot register listener: topic is blank")
+            return
+        }
+        val added = listeners.computeIfAbsent(topic) { CopyOnWriteArraySet() }.add(listener)
+        if (added) {
+            Log.d(TAG, "Listener registered for '$topic'")
         }
     }
 
-    fun removeListener(listener: MqttListener) {
-        if (listeners.remove(listener)) {
-            Log.d(TAG, "Listener removed")
+    fun unregister(topic: String, listener: MqttListener) {
+        val topicListeners = listeners[topic] ?: return
+        if (topicListeners.remove(listener)) {
+            Log.d(TAG, "Listener unregistered from '$topic'")
         }
+        // Drop the topic entry once its last listener is gone so routing does not
+        // accumulate empty sets over repeated stage restarts.
+        listeners.remove(topic, emptySet<MqttListener>())
     }
 
     /**
-     * Hands a received message to every registered listener. A listener that throws
-     * must not prevent the remaining listeners from seeing the message, so failures
-     * are contained per listener rather than aborting the dispatch.
+     * Routes a received message to the listeners registered for its topic. A
+     * listener that throws must not prevent the remaining listeners from seeing
+     * the message, so failures are contained per listener.
      */
     @Suppress("TooGenericExceptionCaught")
     internal fun dispatchMessage(topic: String, payload: String) {
-        listeners.forEach { listener ->
+        val topicListeners = listeners[topic]
+        if (topicListeners.isNullOrEmpty()) {
+            Log.d(TAG, "No listener registered for '$topic', ignoring message")
+            return
+        }
+        topicListeners.forEach { listener ->
             try {
                 listener.onMessageReceived(topic, payload)
             } catch (e: Exception) {
