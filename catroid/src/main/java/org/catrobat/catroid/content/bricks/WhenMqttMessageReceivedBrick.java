@@ -63,6 +63,17 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 	private transient BrickSpinner<UserVariable> payloadSpinner;
 	private transient BrickSpinner<UserVariable> topicSpinner;
 
+	/**
+	 * True while the spinners are being restored from the script.
+	 *
+	 * BrickSpinner.setSelection() reports a selection even when the script has no
+	 * variable bound, because it falls back to the first entry in the list. Both of
+	 * these bindings are optional, so writing that fallback back into the script
+	 * would bind a variable the user never chose, and the receive path would then
+	 * overwrite it with every incoming topic.
+	 */
+	private transient boolean restoringSpinners;
+
 	public WhenMqttMessageReceivedBrick() {
 		this(new MqttScript());
 	}
@@ -110,6 +121,8 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 		items.addAll(ProjectManager.getInstance().getCurrentProject().getUserVariables());
 		items.addAll(ProjectManager.getInstance().getCurrentProject().getMultiplayerVariables());
 
+		restoringSpinners = true;
+
 		payloadSpinner = new BrickSpinner<>(R.id.brick_when_mqtt_payload_spinner, view,
 				new ArrayList<>(items));
 		payloadSpinner.setOnItemSelectedListener(this);
@@ -119,10 +132,15 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 				new ArrayList<>(items));
 		topicSpinner.setOnItemSelectedListener(this);
 		topicSpinner.setSelection(script.getTopicVariable());
+
+		restoringSpinners = false;
 	}
 
 	@Override
 	public void onItemSelected(Integer spinnerId, @Nullable UserVariable item) {
+		if (restoringSpinners) {
+			return;
+		}
 		if (spinnerId == R.id.brick_when_mqtt_payload_spinner) {
 			script.setPayloadVariable(item);
 		} else if (spinnerId == R.id.brick_when_mqtt_topic_spinner) {

@@ -32,6 +32,7 @@ import org.catrobat.catroid.R
 import org.catrobat.catroid.content.MqttScript
 import org.catrobat.catroid.content.bricks.PublishMqttMessageBrick
 import org.catrobat.catroid.content.bricks.WhenMqttMessageReceivedBrick
+import org.catrobat.catroid.formulaeditor.UserVariable
 import org.catrobat.catroid.test.utils.TestUtils
 import org.catrobat.catroid.ui.ProjectActivity
 import org.catrobat.catroid.uiespresso.util.UiTestUtils
@@ -39,6 +40,7 @@ import org.catrobat.catroid.uiespresso.util.rules.BaseActivityTestRule
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -127,5 +129,36 @@ class MqttBrickViewTest {
 
     companion object {
         private const val PROJECT_NAME = "MqttBrickViewTest"
+    }
+
+    /**
+     * Both variable bindings are optional. BrickSpinner reports a selection even when
+     * nothing is bound, falling back to the first variable in the list, so simply
+     * opening the script editor used to bind a variable the user never chose. The
+     * receive path then overwrote that variable with every incoming topic.
+     */
+    @Test
+    fun testRenderingDoesNotBindVariablesTheUserDidNotChoose() {
+        val script = MqttScript("catrobat/home/+/state")
+        val brick = WhenMqttMessageReceivedBrick(script)
+
+        brick.getView(activity())
+
+        assertNull("rendering bound a payload variable on its own", script.payloadVariable)
+        assertNull("rendering bound a topic variable on its own", script.topicVariable)
+    }
+
+    @Test
+    fun testRenderingKeepsAnExistingBinding() {
+        val chosen = UserVariable("chosenPayload", "")
+        ProjectManager.getInstance().currentProject.addUserVariable(chosen)
+        val script = MqttScript("catrobat/home/+/state")
+        script.payloadVariable = chosen
+        val brick = WhenMqttMessageReceivedBrick(script)
+
+        brick.getView(activity())
+
+        assertEquals(chosen.name, script.payloadVariable?.name)
+        assertNull("the topic binding was left unset and must stay unset", script.topicVariable)
     }
 }
