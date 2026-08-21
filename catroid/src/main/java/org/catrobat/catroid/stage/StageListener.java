@@ -65,6 +65,7 @@ import org.catrobat.catroid.content.Sprite;
 import org.catrobat.catroid.content.XmlHeader;
 import org.catrobat.catroid.content.eventids.EventId;
 import org.catrobat.catroid.content.eventids.GamepadEventId;
+import org.catrobat.catroid.devices.mqtt.MqttManager;
 import org.catrobat.catroid.embroidery.DSTPatternManager;
 import org.catrobat.catroid.embroidery.EmbroideryPatternManager;
 import org.catrobat.catroid.formulaeditor.SensorHandler;
@@ -582,6 +583,10 @@ public class StageListener implements ApplicationListener {
 		}
 
 		if (!paused) {
+			// Hand messages buffered by the MQTT network thread to their listeners here,
+			// so scripts are triggered on the render thread like every other event.
+			get(MqttManager.class).dispatchPendingMessages();
+
 			float deltaTime = Gdx.graphics.getDeltaTime();
 
 			float optimizedDeltaTime = deltaTime / deltaActionTimeDivisor;

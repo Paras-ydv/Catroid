@@ -48,6 +48,8 @@ import org.catrobat.catroid.common.ServiceProvider;
 import org.catrobat.catroid.content.Project;
 import org.catrobat.catroid.content.bricks.Brick;
 import org.catrobat.catroid.devices.mindstorms.MindstormsException;
+import org.catrobat.catroid.devices.mqtt.MqttConnectionConfig;
+import org.catrobat.catroid.devices.mqtt.MqttManager;
 import org.catrobat.catroid.devices.raspberrypi.RaspberryPiService;
 import org.catrobat.catroid.formulaeditor.SensorHandler;
 import org.catrobat.catroid.formulaeditor.SensorLoudness;
@@ -303,6 +305,10 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 			}
 		}
 
+		if (requiredResourcesSet.contains(Brick.MQTT_CONNECTION)) {
+			connectMqttBroker();
+		}
+
 		if (requiredResourcesSet.contains(Brick.SOCKET_RASPI)) {
 			Project currentProject = ProjectManager.getInstance().getCurrentProject();
 			RaspberryPiService.getInstance().enableRaspberryInterruptPinsForProject(currentProject);
@@ -422,6 +428,10 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 					failedResourcesMessage.append(stageActivity.getString(R.string
 							.prestage_no_gps_sensor_available));
 					break;
+				case Brick.MQTT_CONNECTION:
+					failedResourcesMessage.append(stageActivity.getString(R.string
+							.prestage_no_mqtt_connection_available));
+					break;
 				case Brick.TEXT_TO_SPEECH:
 					failedResourcesMessage.append(stageActivity.getString(R.string
 							.prestage_text_to_speech_error));
@@ -515,6 +525,23 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 				== BluetoothDeviceService.ConnectDeviceResult.ALREADY_CONNECTED) {
 			resourceInitialized();
 		}
+	}
+
+	private void connectMqttBroker() {
+		MqttConnectionConfig config = MqttConnectionConfig.Companion.fromContext(stageActivity);
+		// Paho's connect blocks until the broker answers or the timeout expires, so it
+		// must not run on the UI thread. The resource callbacks are posted back because
+		// finishing initialisation touches the stage.
+		new Thread(() -> {
+			boolean connected = get(MqttManager.class).connect(config);
+			stageActivity.runOnUiThread(() -> {
+				if (connected) {
+					resourceInitialized();
+				} else {
+					resourceFailed(Brick.MQTT_CONNECTION);
+				}
+			});
+		}, "MqttConnect").start();
 	}
 
 	private void connectRaspberrySocket() {

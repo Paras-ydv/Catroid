@@ -883,6 +883,7 @@
     <string formatted="false" name="prestage_no_inclination_sensor_available">\u2022 Inclination sensor\n</string>
     <string formatted="false" name="prestage_no_compass_sensor_available">\u2022 Compass\n</string>
     <string formatted="false" name="prestage_no_gps_sensor_available">\u2022 Geolocation\n</string>
+    <string formatted="false" name="prestage_no_mqtt_connection_available">\u2022 MQTT broker connection\n</string>
     <string formatted="false" name="prestage_text_to_speech_error">\u2022 Text-To-Speech engine\n</string>
     <string formatted="false" name="prestage_no_back_camera_available">\u2022 Rear camera\n</string>
     <string formatted="false" name="prestage_no_face_detection_available">\u2022 Face detection\n</string>
