@@ -23,6 +23,7 @@
 
 package org.catrobat.catroid.test.mqtt
 
+import org.catrobat.catroid.devices.mqtt.MqttClientFactory
 import org.catrobat.catroid.devices.mqtt.MqttClientInterface
 import org.catrobat.catroid.devices.mqtt.MqttConnectionConfig
 import org.catrobat.catroid.devices.mqtt.MqttManager
@@ -39,12 +40,14 @@ import org.junit.Test
 class MqttManagerTest {
 
     private lateinit var fakeClient: FakeMqttClient
+    private lateinit var fakeFactory: FakeMqttClientFactory
     private lateinit var manager: MqttManager
 
     @Before
     fun setUp() {
         fakeClient = FakeMqttClient()
-        manager = MqttManager(fakeClient)
+        fakeFactory = FakeMqttClientFactory(fakeClient)
+        manager = MqttManager(fakeFactory)
     }
 
     private val defaultConfig = MqttConnectionConfig("localhost", 1883, "client-1", "", "", false)
@@ -105,14 +108,15 @@ class MqttManagerTest {
 
     @Test
     fun testConnectWhenAlreadyConnectedDoesNotReconnect() {
-        fakeClient.connected = true
+        manager.connect(defaultConfig)
+        fakeClient.connectCalled = false
         manager.connect(defaultConfig)
         assertFalse(fakeClient.connectCalled)
     }
 
     @Test
     fun testConnectWhenAlreadyConnectedReturnsTrue() {
-        fakeClient.connected = true
+        manager.connect(defaultConfig)
         assertTrue(manager.connect(defaultConfig))
     }
 
@@ -131,6 +135,24 @@ class MqttManagerTest {
     fun testConnectSucceedsWithEmptyClientId() {
         manager.connect(MqttConnectionConfig("localhost", 1883, "", "", "", false))
         assertTrue(fakeClient.connectCalled)
+    }
+
+    @Test
+    fun testConnectClosesStaleClientBeforeReconnecting() {
+        manager.connect(defaultConfig)
+        fakeClient.connected = false
+        fakeFactory.createCalled = false
+        manager.connect(defaultConfig)
+        assertTrue(fakeClient.closeCalled)
+        assertTrue(fakeFactory.createCalled)
+    }
+
+    @Test
+    fun testConnectDoesNotCloseAlreadyConnectedClient() {
+        manager.connect(defaultConfig)
+        fakeClient.closeCalled = false
+        manager.connect(defaultConfig)
+        assertFalse(fakeClient.closeCalled)
     }
 
     // --- URI building ---
@@ -190,39 +212,58 @@ class MqttManagerTest {
 
     @Test
     fun testDisconnectCallsClientDisconnect() {
-        fakeClient.connected = true
+        manager.connect(defaultConfig)
         manager.disconnect()
         assertTrue(fakeClient.disconnectCalled)
     }
 
     @Test
     fun testDisconnectCallsClientClose() {
-        fakeClient.connected = true
+        manager.connect(defaultConfig)
         manager.disconnect()
         assertTrue(fakeClient.closeCalled)
     }
 
     @Test
-    fun testDisconnectWhenNotConnectedDoesNotCallClient() {
-        fakeClient.connected = false
+    fun testDisconnectWhenNoClientDoesNotCallClient() {
+        manager = MqttManager(FakeMqttClientFactory(fakeClient))
         manager.disconnect()
         assertFalse(fakeClient.disconnectCalled)
         assertFalse(fakeClient.closeCalled)
     }
 
     @Test
+    fun testDisconnectCleansUpDroppedConnection() {
+        manager.connect(defaultConfig)
+        fakeClient.connected = false
+        manager.disconnect()
+        assertTrue(fakeClient.disconnectCalled)
+        assertTrue(fakeClient.closeCalled)
+    }
+
+    @Test
     fun testIsNotConnectedAfterDisconnect() {
-        fakeClient.connected = true
+        manager.connect(defaultConfig)
         manager.disconnect()
         assertFalse(manager.isConnected)
     }
 
     @Test
     fun testDisconnectTwiceDoesNotCrash() {
-        fakeClient.connected = true
+        manager.connect(defaultConfig)
         manager.disconnect()
         manager.disconnect()
         // no exception = pass
+    }
+
+    // --- FakeMqttClientFactory ---
+
+    private class FakeMqttClientFactory(private val client: FakeMqttClient) : MqttClientFactory {
+        var createCalled = false
+        override fun create(brokerUrl: String, clientId: String): FakeMqttClient {
+            createCalled = true
+            return client
+        }
     }
 
     // --- FakeMqttClient ---
