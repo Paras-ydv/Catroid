@@ -33,19 +33,45 @@ import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClientFactory) {
 
     @Volatile
     private var mqttClient: MqttClientInterface? = null
 
+    /** Subscriptions live on the current broker session and are lost when it ends. */
     private val subscriptions = ConcurrentHashMap<String, Int>()
+
+    /**
+     * What the app asked to be subscribed to, independent of any session. Survives
+     * dropped connections and failed reconnect attempts, so recovery still knows
+     * what to restore after the broker has been unreachable for a while.
+     */
+    private val desiredSubscriptions = ConcurrentHashMap<String, Int>()
 
     internal val activeSubscriptions: Set<String> get() = subscriptions.keys.toSet()
 
     private val incomingMessages = MqttMessageQueue()
 
     private val outgoingMessages = MqttPublishQueue()
+
+    @Volatile
+    private var lastConfig: MqttConnectionConfig? = null
+
+    @Volatile
+    private var reconnectAttempt = 0
+
+    /** Disabled by disconnect() so an intentional teardown is not undone. */
+    @Volatile
+    private var autoReconnectEnabled = true
+
+    private val reconnectExecutor: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "MqttReconnect").apply { isDaemon = true }
+        }
 
     internal val pendingMessageCount: Int get() = incomingMessages.size
 
@@ -149,11 +175,16 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         const val DEFAULT_QOS = 0
         private const val MULTI_LEVEL_WILDCARD = '#'
         private const val SINGLE_LEVEL_WILDCARD = '+'
+        private const val INITIAL_BACKOFF_MILLIS = 1000L
+        private const val MAX_BACKOFF_MILLIS = 60000L
+        private const val MAX_BACKOFF_EXPONENT = 6
+        private const val MAX_RECONNECT_ATTEMPTS = 10
     }
 
     fun connectFromContext(context: Context) = connect(MqttConnectionConfig.fromContext(context))
 
     fun connect(config: MqttConnectionConfig): Boolean = synchronized(this) {
+        autoReconnectEnabled = true
         if (isConnected) return true
         if (config.host.isBlank()) {
             Log.e(TAG, "Cannot connect: host is blank")
@@ -167,8 +198,8 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
                 Log.e(TAG, "Failed to close stale client before reconnect", e)
             }
             mqttClient = null
-            // Subscriptions live on the broker session of the client that is being
-            // discarded, so the fresh client starts with none.
+            // The new client starts a fresh broker session with no subscriptions.
+            // desiredSubscriptions still remembers them, and they are re-issued below.
             subscriptions.clear()
         }
         return try {
@@ -180,6 +211,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             val connected = client.isConnected
             Log.d(TAG, "Connect result for clientId=$resolvedClientId at $brokerUrl: connected=$connected")
             if (connected) {
+                lastConfig = config
+                reconnectAttempt = 0
+                restoreSubscriptions(desiredSubscriptions.toMap())
                 flushOutgoingMessages()
             }
             connected
@@ -247,6 +281,26 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
     }
 
     /**
+     * Re-issues the subscriptions that belonged to the previous session. Called
+     * after a reconnect, since a clean session starts the broker with none.
+     */
+    private fun restoreSubscriptions(topics: Map<String, Int>) {
+        if (topics.isEmpty()) {
+            return
+        }
+        val client = mqttClient ?: return
+        Log.d(TAG, "Restoring ${topics.size} subscription(s)")
+        topics.forEach { (topic, qos) ->
+            try {
+                client.subscribe(topic, qos)
+                subscriptions[topic] = qos
+            } catch (e: MqttException) {
+                Log.e(TAG, "Failed to restore subscription '$topic'", e)
+            }
+        }
+    }
+
+    /**
      * Sends everything buffered while offline, oldest first.
      *
      * A message is only considered delivered once the client accepted it. If the
@@ -299,6 +353,7 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         return try {
             client.subscribe(topic, qos)
             subscriptions[topic] = qos
+            desiredSubscriptions[topic] = qos
             Log.d(TAG, "Subscribed to '$topic' with QoS $qos")
             true
         } catch (e: MqttException) {
@@ -322,6 +377,7 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         }
         return try {
             client.unsubscribe(topic)
+            desiredSubscriptions.remove(topic)
             val qos = subscriptions.remove(topic)
             Log.d(TAG, "Unsubscribed from '$topic' (was QoS $qos)")
             true
@@ -338,6 +394,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         }
 
     fun disconnect() {
+        // Stop retrying first: a reconnect scheduled by a drop must not resurrect a
+        // connection the user just ended by leaving the stage.
+        autoReconnectEnabled = false
         synchronized(this) {
             if (mqttClient == null) return
             try {
@@ -348,6 +407,7 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
                 Log.e(TAG, "Error during disconnect", e)
             } finally {
                 subscriptions.clear()
+                desiredSubscriptions.clear()
                 incomingMessages.clear()
                 // An intentional disconnect ends the session, so queued messages are
                 // dropped rather than replayed into an unrelated later run.
@@ -371,9 +431,53 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         }
     }
 
+    /**
+     * Waits before each reconnect attempt, doubling the delay so a broker that is
+     * down does not get hammered and the phone's radio is not kept awake retrying
+     * in a tight loop. The delay is capped so recovery still happens promptly once
+     * the broker returns.
+     */
+    internal fun backoffDelayMillis(attempt: Int): Long {
+        val exponent = attempt.coerceAtLeast(0).coerceAtMost(MAX_BACKOFF_EXPONENT)
+        val delay = INITIAL_BACKOFF_MILLIS shl exponent
+        return delay.coerceAtMost(MAX_BACKOFF_MILLIS)
+    }
+
+    /**
+     * Reconnects using the configuration of the last successful connection,
+     * restoring subscriptions and flushing queued publishes as a side effect of
+     * connect(). Returns false when there is nothing to reconnect to.
+     */
+    internal fun reconnectNow(): Boolean {
+        val config = lastConfig ?: run {
+            Log.d(TAG, "No previous configuration, skipping reconnect")
+            return false
+        }
+        return connect(config)
+    }
+
+    private fun scheduleReconnect() {
+        if (!autoReconnectEnabled) {
+            return
+        }
+        val attempt = reconnectAttempt++
+        if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+            Log.e(TAG, "Giving up reconnecting after $attempt attempts")
+            return
+        }
+        val delay = backoffDelayMillis(attempt)
+        Log.d(TAG, "Scheduling reconnect attempt ${attempt + 1} in ${delay}ms")
+        reconnectExecutor.schedule({
+            if (!isConnected && reconnectNow().not()) {
+                scheduleReconnect()
+            }
+        }, delay, TimeUnit.MILLISECONDS)
+    }
+
     private val callback = object : MqttCallback {
         override fun connectionLost(cause: Throwable?) {
             Log.e(TAG, "Connection lost: ${cause?.message}")
+            scheduleReconnect()
         }
         override fun messageArrived(topic: String, message: MqttMessage) {
             // Runs on the Paho network thread: buffer only, never route from here.

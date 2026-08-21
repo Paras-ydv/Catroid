@@ -535,22 +535,131 @@ class MqttManagerTest {
         assertTrue(manager.activeSubscriptions.isEmpty())
     }
 
+    // --- reconnect and subscription recovery ---
+
     @Test
-    fun testReconnectAfterDropClearsStaleSubscriptions() {
+    fun testSubscriptionIsRestoredAfterReconnect() {
         connected().subscribe(defaultConfig, "home/light")
         fakeClient.connected = false
+        manager.connect(defaultConfig)
+        assertEquals(setOf("home/light"), manager.activeSubscriptions)
+    }
+
+    @Test
+    fun testRestoredSubscriptionIsReissuedToTheNewSession() {
+        connected().subscribe(defaultConfig, "home/light")
+        fakeClient.connected = false
+        fakeClient.subscribedTopics.clear()
+        manager.connect(defaultConfig)
+        assertEquals(listOf("home/light"), fakeClient.subscribedTopics)
+    }
+
+    @Test
+    fun testRestoredSubscriptionKeepsItsQos() {
+        connected().subscribe(defaultConfig, "home/light", qos = 2)
+        fakeClient.connected = false
+        fakeClient.lastSubscribeQos = -1
+        manager.connect(defaultConfig)
+        assertEquals(2, fakeClient.lastSubscribeQos)
+    }
+
+    @Test
+    fun testAllSubscriptionsAreRestoredAfterReconnect() {
+        connected().subscribe(defaultConfig, "home/light")
+        manager.subscribe(defaultConfig, "home/+/state")
+        fakeClient.connected = false
+        manager.connect(defaultConfig)
+        assertEquals(setOf("home/light", "home/+/state"), manager.activeSubscriptions)
+    }
+
+    @Test
+    fun testMessagesReachListenersAgainAfterReconnect() {
+        val listener = FakeListener()
+        manager.register("home/light", listener)
+        connected().subscribe(defaultConfig, "home/light")
+        fakeClient.connected = false
+        manager.connect(defaultConfig)
+        fakeClient.deliver("home/light", "ON")
+        manager.dispatchPendingMessages()
+        assertEquals(listOf("home/light" to "ON"), listener.received)
+    }
+
+    @Test
+    fun testSubscriptionsAreNotRestoredAfterIntentionalDisconnect() {
+        connected().subscribe(defaultConfig, "home/light")
+        manager.disconnect()
         manager.connect(defaultConfig)
         assertTrue(manager.activeSubscriptions.isEmpty())
     }
 
+    // --- reconnect backoff ---
+
     @Test
-    fun testSubscribeAgainAfterDropReachesClient() {
+    fun testBackoffStartsAtOneSecond() {
+        assertEquals(1000L, manager.backoffDelayMillis(0))
+    }
+
+    @Test
+    fun testBackoffDoublesPerAttempt() {
+        assertEquals(2000L, manager.backoffDelayMillis(1))
+        assertEquals(4000L, manager.backoffDelayMillis(2))
+        assertEquals(8000L, manager.backoffDelayMillis(3))
+    }
+
+    @Test
+    fun testBackoffIsCappedAtOneMinute() {
+        assertEquals(60000L, manager.backoffDelayMillis(20))
+    }
+
+    @Test
+    fun testBackoffTreatsNegativeAttemptAsFirst() {
+        assertEquals(1000L, manager.backoffDelayMillis(-1))
+    }
+
+    @Test
+    fun testReconnectWithoutPreviousConfigDoesNothing() {
+        assertFalse(manager.reconnectNow())
+        assertFalse(fakeClient.connectCalled)
+    }
+
+    @Test
+    fun testReconnectUsesLastSuccessfulConfiguration() {
+        connected()
+        fakeClient.connected = false
+        fakeClient.connectCalled = false
+        assertTrue(manager.reconnectNow())
+        assertTrue(fakeClient.connectCalled)
+    }
+
+    @Test
+    fun testReconnectRestoresSubscriptionsAndFlushesQueue() {
         connected().subscribe(defaultConfig, "home/light")
         fakeClient.connected = false
+        fakeClient.throwOnConnect = true
+        manager.publish(defaultConfig, "home/light", "ON")
+        assertEquals(1, manager.pendingPublishCount)
+
+        fakeClient.throwOnConnect = false
+        fakeClient.subscribedTopics.clear()
+        assertTrue(manager.reconnectNow())
+
+        assertEquals(listOf("home/light"), fakeClient.subscribedTopics)
+        assertEquals(0, manager.pendingPublishCount)
+    }
+
+    @Test
+    fun testSubscriptionSurvivesFailedReconnectAttempts() {
+        connected().subscribe(defaultConfig, "home/light")
+        fakeClient.connected = false
+        fakeClient.throwOnConnect = true
         manager.connect(defaultConfig)
-        fakeClient.subscribeCalled = false
-        assertTrue(manager.subscribe(defaultConfig, "home/light"))
-        assertTrue(fakeClient.subscribeCalled)
+        manager.connect(defaultConfig)
+
+        fakeClient.throwOnConnect = false
+        fakeClient.subscribedTopics.clear()
+        manager.connect(defaultConfig)
+
+        assertEquals(listOf("home/light"), fakeClient.subscribedTopics)
     }
 
     // --- topic based listener routing ---
