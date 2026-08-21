@@ -58,6 +58,8 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
 
     private val listeners = ConcurrentHashMap<String, CopyOnWriteArraySet<MqttListener>>()
 
+    private val wildcardFilters = CopyOnWriteArraySet<String>()
+
     internal val registeredTopics: Set<String> get() = listeners.keys.toSet()
 
     /**
@@ -71,6 +73,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             return
         }
         val added = listeners.computeIfAbsent(topic) { CopyOnWriteArraySet() }.add(listener)
+        if (MqttTopicMatcher.containsWildcard(topic)) {
+            wildcardFilters.add(topic)
+        }
         if (added) {
             Log.d(TAG, "Listener registered for '$topic'")
         }
@@ -83,27 +88,47 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         }
         // Drop the topic entry once its last listener is gone so routing does not
         // accumulate empty sets over repeated stage restarts.
-        listeners.remove(topic, emptySet<MqttListener>())
+        if (topicListeners.isEmpty()) {
+            listeners.remove(topic, topicListeners)
+            wildcardFilters.remove(topic)
+        }
     }
 
     /**
-     * Routes a received message to the listeners registered for its topic. A
-     * listener that throws must not prevent the remaining listeners from seeing
+     * Routes a received message to every listener whose filter matches its topic.
+     *
+     * Exact filters resolve through a single map lookup. Wildcard filters require
+     * comparing the topic against each one, so they are kept in a separate set and
+     * only that smaller collection is scanned.
+     *
+     * A listener that throws must not prevent the remaining listeners from seeing
      * the message, so failures are contained per listener.
      */
-    @Suppress("TooGenericExceptionCaught")
     internal fun dispatchMessage(topic: String, payload: String) {
-        val topicListeners = listeners[topic]
-        if (topicListeners.isNullOrEmpty()) {
-            Log.d(TAG, "No listener registered for '$topic', ignoring message")
-            return
+        var delivered = false
+        listeners[topic]?.forEach { listener ->
+            notifyListener(listener, topic, payload)
+            delivered = true
         }
-        topicListeners.forEach { listener ->
-            try {
-                listener.onMessageReceived(topic, payload)
-            } catch (e: Exception) {
-                Log.e(TAG, "Listener failed handling message on '$topic'", e)
+        wildcardFilters.forEach { filter ->
+            if (MqttTopicMatcher.matches(filter, topic)) {
+                listeners[filter]?.forEach { listener ->
+                    notifyListener(listener, topic, payload)
+                    delivered = true
+                }
             }
+        }
+        if (!delivered) {
+            Log.d(TAG, "No listener registered for '$topic', ignoring message")
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun notifyListener(listener: MqttListener, topic: String, payload: String) {
+        try {
+            listener.onMessageReceived(topic, payload)
+        } catch (e: Exception) {
+            Log.e(TAG, "Listener failed handling message on '$topic'", e)
         }
     }
 

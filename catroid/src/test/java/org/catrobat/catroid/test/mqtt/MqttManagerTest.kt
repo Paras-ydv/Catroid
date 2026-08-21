@@ -578,6 +578,70 @@ class MqttManagerTest {
         assertEquals(1, healthy.received.size)
     }
 
+    // --- wildcard routing ---
+
+    @Test
+    fun testSingleLevelWildcardListenerReceivesMatchingTopic() {
+        val listener = FakeListener()
+        manager.register("home/+/state", listener)
+        manager.dispatchMessage("home/light/state", "ON")
+        assertEquals(listOf("home/light/state" to "ON"), listener.received)
+    }
+
+    @Test
+    fun testMultiLevelWildcardListenerReceivesNestedTopic() {
+        val listener = FakeListener()
+        manager.register("home/#", listener)
+        manager.dispatchMessage("home/kitchen/light/state", "ON")
+        assertEquals(1, listener.received.size)
+    }
+
+    @Test
+    fun testWildcardListenerReceivesActualTopicNotFilter() {
+        val listener = FakeListener()
+        manager.register("home/#", listener)
+        manager.dispatchMessage("home/kitchen/light", "ON")
+        assertEquals("home/kitchen/light", listener.received.single().first)
+    }
+
+    @Test
+    fun testWildcardListenerDoesNotReceiveNonMatchingTopic() {
+        val listener = FakeListener()
+        manager.register("home/+/state", listener)
+        manager.dispatchMessage("garden/light/state", "ON")
+        assertTrue(listener.received.isEmpty())
+    }
+
+    @Test
+    fun testExactAndWildcardListenersBothReceiveMessage() {
+        val exact = FakeListener()
+        val wildcard = FakeListener()
+        manager.register("home/light", exact)
+        manager.register("home/#", wildcard)
+        manager.dispatchMessage("home/light", "ON")
+        assertEquals(1, exact.received.size)
+        assertEquals(1, wildcard.received.size)
+    }
+
+    @Test
+    fun testUnregisteringWildcardStopsDelivery() {
+        val listener = FakeListener()
+        manager.register("home/#", listener)
+        manager.unregister("home/#", listener)
+        manager.dispatchMessage("home/light", "ON")
+        assertTrue(listener.received.isEmpty())
+    }
+
+    @Test
+    fun testWildcardSubscriptionReachesListenerEndToEnd() {
+        val listener = FakeListener()
+        manager.register("home/+/state", listener)
+        connected().subscribe(defaultConfig, "home/+/state")
+        fakeClient.deliver("home/light/state", "ON")
+        manager.dispatchPendingMessages()
+        assertEquals(listOf("home/light/state" to "ON"), listener.received)
+    }
+
     // --- incoming message queue ---
 
     private fun deliverFromBroker(topic: String, payload: String) {
