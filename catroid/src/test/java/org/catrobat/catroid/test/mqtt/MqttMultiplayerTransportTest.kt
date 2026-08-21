@@ -28,6 +28,7 @@ import org.catrobat.catroid.devices.mqtt.MqttClientInterface
 import org.catrobat.catroid.devices.mqtt.MqttConnectionConfig
 import org.catrobat.catroid.devices.mqtt.MqttManager
 import org.catrobat.catroid.devices.mqtt.MqttMultiplayerTransport
+import org.catrobat.catroid.devices.mqtt.MqttMultiplayerTransport.Companion.roomIdFor
 import org.catrobat.catroid.formulaeditor.UserVariable
 import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
@@ -206,5 +207,44 @@ class MqttMultiplayerTransportTest {
         override fun unsubscribe(topic: String) {
             subscribedTopics.remove(topic)
         }
+    }
+
+    // --- room id derivation ---
+
+    @Test
+    fun testPlainProjectNameIsUsedAsRoom() {
+        assertEquals("MyGame", roomIdFor("MyGame"))
+    }
+
+    @Test
+    fun testSpacesAreKeptBecauseTheyAreValidInTopics() {
+        assertEquals("My Game", roomIdFor("My Game"))
+    }
+
+    @Test
+    fun testMultiLevelWildcardInProjectNameIsReplaced() {
+        assertEquals("Game _1", roomIdFor("Game #1"))
+    }
+
+    @Test
+    fun testSingleLevelWildcardInProjectNameIsReplaced() {
+        assertEquals("Game_1", roomIdFor("Game+1"))
+    }
+
+    @Test
+    fun testSlashInProjectNameIsReplacedSoSegmentsStayAligned() {
+        assertEquals("a_b", roomIdFor("a/b"))
+    }
+
+    @Test
+    fun testBlankProjectNameFallsBackToADefaultRoom() {
+        assertEquals("room", roomIdFor("   "))
+    }
+
+    @Test
+    fun testSanitisedRoomProducesAValidFilter() {
+        val filter = MqttMultiplayerTransport.roomFilter(roomIdFor("Game #1"))
+        assertEquals("catrobat/multiplayer/Game _1/#", filter)
+        assertEquals(1, filter.count { it == '#' })
     }
 }

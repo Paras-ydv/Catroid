@@ -572,7 +572,7 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 		if (project.getMultiplayerVariables().isEmpty()) {
 			return;
 		}
-		String room = project.getName();
+		String room = MqttMultiplayerTransport.roomIdFor(project.getName());
 		String sender = config.getClientId().isEmpty()
 				? Build.MODEL + "-" + android.os.Process.myPid() : config.getClientId();
 

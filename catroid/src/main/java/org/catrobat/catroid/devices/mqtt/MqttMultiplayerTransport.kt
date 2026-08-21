@@ -141,5 +141,23 @@ class MqttMultiplayerTransport(private val mqttManager: MqttManager) {
         private const val VARIABLE_INDEX = 4
 
         fun roomFilter(roomId: String) = "$TOPIC_ROOT/$roomId/#"
+
+        /**
+         * Derives a room id from a project name.
+         *
+         * Project names are free text and are only sanitised for use as directory
+         * names, which leaves the MQTT wildcards + and # untouched. Either of them
+         * inside a topic filter makes it invalid and the broker rejects the
+         * subscription, and a slash would add topic levels and break the segment
+         * layout the sender is read from. All three are replaced so any project
+         * name yields a usable room.
+         */
+        @JvmStatic
+        fun roomIdFor(projectName: String): String =
+            projectName.trim()
+                .replace(Regex("[/+#]"), "_")
+                .ifEmpty { DEFAULT_ROOM }
+
+        private const val DEFAULT_ROOM = "room"
     }
 }
