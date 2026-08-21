@@ -58,6 +58,28 @@
             android:maxLines="1"
             app:layout_newLine="true" />
 
+        <TextView
+            style="@style/BrickText.SingleLine"
+            android:text="@string/brick_when_mqtt_store_payload_in"
+            app:layout_newLine="true" />
+
+        <Spinner
+            android:id="@+id/brick_when_mqtt_payload_spinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textDirection="locale" />
+
+        <TextView
+            style="@style/BrickText.SingleLine"
+            android:text="@string/brick_when_mqtt_store_topic_in"
+            app:layout_newLine="true" />
+
+        <Spinner
+            android:id="@+id/brick_when_mqtt_topic_spinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textDirection="locale" />
+
     </org.catrobat.catroid.ui.BrickLayout>
 
 </LinearLayout>

@@ -59,7 +59,10 @@ class MqttScriptRegistrar(
                 Log.w(TAG, "Skipping MQTT script with no topic")
                 return@forEach
             }
-            val dispatcher = MqttEventDispatcher(topic) { eventId, _ ->
+            val dispatcher = MqttEventDispatcher(topic) { eventId, message ->
+                // Variables are written before the event fires so the script sees the
+                // values of the message that triggered it, not of a later arrival.
+                bindMessageToVariables(script, message)
                 project.fireToAllSprites(EventWrapper(eventId, false))
             }
             mqttManager.register(topic, dispatcher)
@@ -80,6 +83,22 @@ class MqttScriptRegistrar(
 
     companion object {
         private val TAG = MqttScriptRegistrar::class.java.simpleName
+
+        /**
+         * Writes the incoming payload and the concrete topic into the variables the
+         * script selected. Both are optional, and the topic is worth having even
+         * though the script names one: under a wildcard subscription the filter does
+         * not say which device the message came from.
+         *
+         * Payloads stay strings. Catroid compares a variable holding "22.5" against a
+         * number correctly, whereas guessing at a numeric conversion here would turn
+         * an id like "007" into 7.
+         */
+        @JvmStatic
+        fun bindMessageToVariables(script: MqttScript, message: ReceivedMqttMessage) {
+            script.payloadVariable?.value = message.payload
+            script.topicVariable?.value = message.topic
+        }
 
         private fun Project.mqttScripts(): List<MqttScript> =
             sceneList.orEmpty()
