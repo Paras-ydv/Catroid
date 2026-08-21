@@ -281,4 +281,58 @@ class MqttManagerRoutingTest {
             received.add(topic to payload)
         }
     }
+
+    // --- listener lifetime across stage runs ---
+
+    @Test
+    fun testDisconnectDropsRegisteredListeners() {
+        val listener = FakeListener()
+        manager.register("home/temp", listener)
+        connected()
+        manager.disconnect()
+        manager.dispatchMessage("home/temp", "22.5")
+        assertTrue(listener.received.isEmpty())
+    }
+
+    @Test
+    fun testDisconnectDropsWildcardListeners() {
+        val listener = FakeListener()
+        manager.register("home/#", listener)
+        connected()
+        manager.disconnect()
+        manager.dispatchMessage("home/kitchen/temp", "22.5")
+        assertTrue(listener.received.isEmpty())
+    }
+
+    @Test
+    fun testDisconnectDropsListenersEvenWhenConnectNeverSucceeded() {
+        val listener = FakeListener()
+        manager.register("home/temp", listener)
+        manager.disconnect()
+        manager.dispatchMessage("home/temp", "22.5")
+        assertTrue(listener.received.isEmpty())
+    }
+
+    /**
+     * The manager outlives any single stage. Without teardown on disconnect, the
+     * listeners of earlier runs stay registered and every message is delivered
+     * once per run that ever started.
+     */
+    @Test
+    fun testListenersOfEarlierRunsStopReceiving() {
+        val earlierRuns = (1..3).map { FakeListener() }
+        earlierRuns.forEach { stale ->
+            manager.register("home/temp", stale)
+            connected()
+            manager.disconnect()
+        }
+        val currentRun = FakeListener()
+        manager.register("home/temp", currentRun)
+        connected()
+
+        manager.dispatchMessage("home/temp", "22.5")
+
+        assertEquals(1, currentRun.received.size)
+        assertEquals(0, earlierRuns.sumOf { it.received.size })
+    }
 }

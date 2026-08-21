@@ -397,6 +397,13 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         // Stop retrying first: a reconnect scheduled by a drop must not resurrect a
         // connection the user just ended by leaving the stage.
         autoReconnectEnabled = false
+        // Listeners belong to the run that registered them. The manager outlives any
+        // single stage, so keeping them would mean a second run of the same project
+        // delivers every message twice, a third run three times, and so on. Cleared
+        // before the client guard because a run that failed to connect still
+        // registered its listeners.
+        listeners.clear()
+        wildcardFilters.clear()
         synchronized(this) {
             if (mqttClient == null) return
             try {

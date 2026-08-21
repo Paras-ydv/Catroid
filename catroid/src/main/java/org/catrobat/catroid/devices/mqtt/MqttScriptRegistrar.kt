@@ -29,8 +29,7 @@ import org.catrobat.catroid.content.MqttScript
 import org.catrobat.catroid.content.Project
 
 /**
- * Subscribes every MQTT script in a project and keeps the resulting listeners so
- * they can be torn down when the stage ends.
+ * Subscribes every MQTT script in a project when a stage starts.
  *
  * Subscribing happens once at stage start rather than when a script first runs,
  * because a receive script has to be listening before the first message arrives,
@@ -45,14 +44,15 @@ class MqttScriptRegistrar(
     private val config: MqttConnectionConfig
 ) {
 
-    private val registered = mutableListOf<Pair<String, MqttListener>>()
-
     /**
-     * Returns the dispatchers created, keyed by the script they belong to, so the
-     * caller can bind incoming values to that script's variables.
+     * Registers and subscribes every MQTT script in [project].
+     *
+     * Teardown is not this class's job: MqttManager.disconnect() drops all
+     * listeners when the stage ends, which also covers a run that failed to
+     * connect and never got here.
      */
-    fun registerScriptsOf(project: Project): Map<MqttScript, MqttEventDispatcher> {
-        val dispatchers = mutableMapOf<MqttScript, MqttEventDispatcher>()
+    fun registerScriptsOf(project: Project) {
+        var registeredCount = 0
         project.mqttScripts().forEach { script ->
             val topic = script.topic
             if (topic.isNullOrBlank()) {
@@ -66,19 +66,12 @@ class MqttScriptRegistrar(
                 project.fireToAllSprites(EventWrapper(eventId, false))
             }
             mqttManager.register(topic, dispatcher)
-            registered.add(topic to dispatcher)
             if (!mqttManager.subscribe(config, topic)) {
                 Log.e(TAG, "Failed to subscribe MQTT script topic '$topic'")
             }
-            dispatchers[script] = dispatcher
+            registeredCount++
         }
-        Log.d(TAG, "Registered ${dispatchers.size} MQTT script(s)")
-        return dispatchers
-    }
-
-    fun unregisterAll() {
-        registered.forEach { (topic, listener) -> mqttManager.unregister(topic, listener) }
-        registered.clear()
+        Log.d(TAG, "Registered $registeredCount MQTT script(s)")
     }
 
     companion object {
