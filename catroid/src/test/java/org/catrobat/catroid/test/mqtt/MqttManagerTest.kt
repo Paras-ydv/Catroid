@@ -332,17 +332,86 @@ class MqttManagerTest {
     }
 
     @Test
-    fun testPublishReturnsFalseWhenLazyConnectFails() {
-        fakeClient.throwOnConnect = true
-        assertFalse(manager.publish(defaultConfig, "home/light", "ON"))
-        assertFalse(fakeClient.publishCalled)
-    }
-
-    @Test
     fun testPublishReturnsFalseWhenClientThrows() {
         connected()
         fakeClient.throwOnPublish = true
         assertFalse(manager.publish(defaultConfig, "home/light", "ON"))
+    }
+
+    // --- offline publish queue ---
+
+    @Test
+    fun testPublishIsQueuedWhenBrokerUnreachable() {
+        fakeClient.throwOnConnect = true
+        assertTrue(manager.publish(defaultConfig, "home/light", "ON"))
+        assertFalse(fakeClient.publishCalled)
+        assertEquals(1, manager.pendingPublishCount)
+    }
+
+    @Test
+    fun testQueuedMessageIsSentOnceConnected() {
+        fakeClient.throwOnConnect = true
+        manager.publish(defaultConfig, "home/light", "ON")
+        fakeClient.throwOnConnect = false
+        manager.connect(defaultConfig)
+        assertTrue(fakeClient.publishCalled)
+        assertEquals("home/light", fakeClient.lastPublishTopic)
+        assertEquals(0, manager.pendingPublishCount)
+    }
+
+    @Test
+    fun testQueuedMessagesAreFlushedInPublishOrder() {
+        fakeClient.throwOnConnect = true
+        manager.publish(defaultConfig, "home/a", "first")
+        manager.publish(defaultConfig, "home/b", "second")
+        fakeClient.throwOnConnect = false
+        manager.connect(defaultConfig)
+        assertEquals(listOf("home/a", "home/b"), fakeClient.publishedTopics)
+    }
+
+    @Test
+    fun testQueuedMessageKeepsQosAndRetainedFlag() {
+        fakeClient.throwOnConnect = true
+        manager.publish(defaultConfig, "home/light", "ON", qos = 2, retained = true)
+        fakeClient.throwOnConnect = false
+        manager.connect(defaultConfig)
+        assertEquals(2, fakeClient.lastPublishMessage!!.qos)
+        assertTrue(fakeClient.lastPublishMessage!!.isRetained)
+    }
+
+    @Test
+    fun testFailedPublishIsQueuedForRetry() {
+        connected()
+        fakeClient.throwOnPublish = true
+        manager.publish(defaultConfig, "home/light", "ON")
+        assertEquals(1, manager.pendingPublishCount)
+    }
+
+    @Test
+    fun testInvalidTopicIsNotQueued() {
+        fakeClient.throwOnConnect = true
+        manager.publish(defaultConfig, "home/#", "ON")
+        assertEquals(0, manager.pendingPublishCount)
+    }
+
+    @Test
+    fun testDisconnectDropsQueuedMessages() {
+        connected()
+        fakeClient.throwOnPublish = true
+        manager.publish(defaultConfig, "home/light", "ON")
+        manager.disconnect()
+        assertEquals(0, manager.pendingPublishCount)
+    }
+
+    @Test
+    fun testFlushStopsAndRequeuesWhenConnectionDropsMidway() {
+        fakeClient.throwOnConnect = true
+        manager.publish(defaultConfig, "home/a", "first")
+        manager.publish(defaultConfig, "home/b", "second")
+        fakeClient.throwOnConnect = false
+        fakeClient.throwOnPublish = true
+        manager.connect(defaultConfig)
+        assertEquals(2, manager.pendingPublishCount)
     }
 
     // --- subscribe() ---
@@ -739,6 +808,7 @@ class MqttManagerTest {
         var throwOnPublish = false
         var lastPublishTopic: String? = null
         var lastPublishMessage: MqttMessage? = null
+        val publishedTopics = mutableListOf<String>()
         var subscribeCalled = false
         var throwOnSubscribe = false
         var lastSubscribeQos = -1
@@ -760,6 +830,7 @@ class MqttManagerTest {
             publishCalled = true
             lastPublishTopic = topic
             lastPublishMessage = message
+            publishedTopics.add(topic)
         }
 
         override fun subscribe(topic: String, qos: Int) {

@@ -45,7 +45,11 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
 
     private val incomingMessages = MqttMessageQueue()
 
+    private val outgoingMessages = MqttPublishQueue()
+
     internal val pendingMessageCount: Int get() = incomingMessages.size
+
+    internal val pendingPublishCount: Int get() = outgoingMessages.size
 
     /**
      * Drains everything the network thread has buffered and routes it to the
@@ -175,6 +179,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             client.connect(buildConnectOptions(config.username, config.password))
             val connected = client.isConnected
             Log.d(TAG, "Connect result for clientId=$resolvedClientId at $brokerUrl: connected=$connected")
+            if (connected) {
+                flushOutgoingMessages()
+            }
             connected
         } catch (e: MqttException) {
             Log.e(TAG, "Failed to connect to ${config.host}:${config.port}", e)
@@ -215,21 +222,52 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             Log.e(TAG, "Cannot publish: invalid QoS value $qos")
             return false
         }
+        val pending = PendingPublish(topic, payload, qos, retained)
         if (!isConnected && !connect(config)) {
-            Log.e(TAG, "Cannot publish: connection failed")
-            return false
+            Log.w(TAG, "Broker unreachable, queueing message for '$topic'")
+            outgoingMessages.enqueue(pending)
+            return true
         }
         val client = mqttClient ?: run {
-            Log.e(TAG, "Cannot publish: client is null")
-            return false
+            Log.w(TAG, "No client available, queueing message for '$topic'")
+            outgoingMessages.enqueue(pending)
+            return true
         }
         return try {
             client.publish(topic, buildMessage(payload, qos, retained))
             Log.d(TAG, "Published message to '$topic'")
             true
         } catch (e: MqttException) {
-            Log.e(TAG, "Failed to publish to '$topic'", e)
+            // The connection most likely dropped mid-publish, so keep the message for
+            // the next successful connect instead of losing it.
+            Log.e(TAG, "Failed to publish to '$topic', queueing for retry", e)
+            outgoingMessages.enqueue(pending)
             false
+        }
+    }
+
+    /**
+     * Sends everything buffered while offline, oldest first.
+     *
+     * A message is only considered delivered once the client accepted it. If the
+     * connection drops again part way through, the remainder goes back on the
+     * queue so the flush resumes rather than losing the tail.
+     */
+    private fun flushOutgoingMessages() {
+        if (outgoingMessages.isEmpty()) {
+            return
+        }
+        val client = mqttClient ?: return
+        val pending = outgoingMessages.drain()
+        Log.d(TAG, "Flushing ${pending.size} queued message(s)")
+        pending.forEachIndexed { index, message ->
+            try {
+                client.publish(message.topic, buildMessage(message.payload, message.qos, message.retained))
+            } catch (e: MqttException) {
+                Log.e(TAG, "Flush interrupted at '${message.topic}', requeueing remainder", e)
+                outgoingMessages.requeueAll(pending.drop(index))
+                return
+            }
         }
     }
 
@@ -311,6 +349,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             } finally {
                 subscriptions.clear()
                 incomingMessages.clear()
+                // An intentional disconnect ends the session, so queued messages are
+                // dropped rather than replayed into an unrelated later run.
+                outgoingMessages.clear()
                 mqttClient = null
             }
         }
