@@ -31,11 +31,16 @@ import org.eclipse.paho.client.mqttv3.MqttClient
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
+import java.util.concurrent.ConcurrentHashMap
 
 class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClientFactory) {
 
     @Volatile
     private var mqttClient: MqttClientInterface? = null
+
+    private val subscriptions = ConcurrentHashMap<String, Int>()
+
+    internal val activeSubscriptions: Set<String> get() = subscriptions.keys.toSet()
 
     val isConnected: Boolean
         get() = mqttClient?.isConnected == true
@@ -68,6 +73,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
                 Log.e(TAG, "Failed to close stale client before reconnect", e)
             }
             mqttClient = null
+            // Subscriptions live on the broker session of the client that is being
+            // discarded, so the fresh client starts with none.
+            subscriptions.clear()
         }
         return try {
             val brokerUrl = buildServerUri(config.host, config.port, config.useTls)
@@ -135,6 +143,66 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         }
     }
 
+    fun subscribeFromContext(context: Context, topic: String, qos: Int = DEFAULT_QOS) =
+        subscribe(MqttConnectionConfig.fromContext(context), topic, qos)
+
+    fun subscribe(config: MqttConnectionConfig, topic: String, qos: Int = DEFAULT_QOS): Boolean {
+        if (topic.isBlank()) {
+            Log.e(TAG, "Cannot subscribe: topic is blank")
+            return false
+        }
+        if (qos !in MIN_QOS..MAX_QOS) {
+            Log.e(TAG, "Cannot subscribe: invalid QoS value $qos")
+            return false
+        }
+        subscriptions[topic]?.let { existingQos ->
+            Log.d(TAG, "Already subscribed to '$topic' with QoS $existingQos, ignoring duplicate")
+            return true
+        }
+        // Wildcards are valid here, unlike for publish.
+        if (!isConnected && !connect(config)) {
+            Log.e(TAG, "Cannot subscribe: connection failed")
+            return false
+        }
+        val client = mqttClient ?: run {
+            Log.e(TAG, "Cannot subscribe: client is null")
+            return false
+        }
+        return try {
+            client.subscribe(topic, qos)
+            subscriptions[topic] = qos
+            Log.d(TAG, "Subscribed to '$topic' with QoS $qos")
+            true
+        } catch (e: MqttException) {
+            Log.e(TAG, "Failed to subscribe to '$topic'", e)
+            false
+        }
+    }
+
+    fun unsubscribe(topic: String): Boolean {
+        if (topic.isBlank()) {
+            Log.e(TAG, "Cannot unsubscribe: topic is blank")
+            return false
+        }
+        if (!subscriptions.containsKey(topic)) {
+            Log.d(TAG, "Not subscribed to '$topic', ignoring")
+            return true
+        }
+        val client = mqttClient ?: run {
+            Log.e(TAG, "Cannot unsubscribe: client is null")
+            return false
+        }
+        return try {
+            client.unsubscribe(topic)
+            val qos = subscriptions.remove(topic)
+            Log.d(TAG, "Unsubscribed from '$topic' (was QoS $qos)")
+            true
+        } catch (e: MqttException) {
+            Log.e(TAG, "Failed to unsubscribe from '$topic'", e)
+            false
+        }
+    }
+
     internal fun buildMessage(payload: String, qos: Int, retained: Boolean) =
         MqttMessage(payload.toByteArray(Charsets.UTF_8)).apply {
             this.qos = qos
@@ -151,6 +219,7 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             } catch (e: MqttException) {
                 Log.e(TAG, "Error during disconnect", e)
             } finally {
+                subscriptions.clear()
                 mqttClient = null
             }
         }

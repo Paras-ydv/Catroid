@@ -37,4 +37,6 @@ class PahoMqttClient(brokerUrl: String, clientId: String) : MqttClientInterface 
     override fun close() = client.close()
     override fun setCallback(callback: MqttCallback) = client.setCallback(callback)
     override fun publish(topic: String, message: MqttMessage) = client.publish(topic, message)
+    override fun subscribe(topic: String, qos: Int) = client.subscribe(topic, qos)
+    override fun unsubscribe(topic: String) = client.unsubscribe(topic)
 }

@@ -344,6 +344,145 @@ class MqttManagerTest {
         assertFalse(manager.publish(defaultConfig, "home/light", "ON"))
     }
 
+    // --- subscribe() ---
+
+    @Test
+    fun testSubscribeReturnsTrueOnSuccess() {
+        assertTrue(connected().subscribe(defaultConfig, "home/light"))
+        assertTrue(fakeClient.subscribeCalled)
+    }
+
+    @Test
+    fun testSubscribeSendsTopicAndQos() {
+        connected().subscribe(defaultConfig, "home/light", qos = 2)
+        assertEquals(listOf("home/light"), fakeClient.subscribedTopics)
+        assertEquals(2, fakeClient.lastSubscribeQos)
+    }
+
+    @Test
+    fun testSubscribeAcceptsMultiLevelWildcard() {
+        assertTrue(connected().subscribe(defaultConfig, "home/#"))
+        assertEquals(listOf("home/#"), fakeClient.subscribedTopics)
+    }
+
+    @Test
+    fun testSubscribeAcceptsSingleLevelWildcard() {
+        assertTrue(connected().subscribe(defaultConfig, "home/+/state"))
+        assertEquals(listOf("home/+/state"), fakeClient.subscribedTopics)
+    }
+
+    @Test
+    fun testSubscribeRejectsBlankTopic() {
+        assertFalse(connected().subscribe(defaultConfig, "  "))
+        assertFalse(fakeClient.subscribeCalled)
+    }
+
+    @Test
+    fun testSubscribeRejectsInvalidQos() {
+        assertFalse(connected().subscribe(defaultConfig, "home/light", qos = 3))
+        assertFalse(fakeClient.subscribeCalled)
+    }
+
+    @Test
+    fun testSubscribeTracksActiveSubscription() {
+        connected().subscribe(defaultConfig, "home/light")
+        assertEquals(setOf("home/light"), manager.activeSubscriptions)
+    }
+
+    @Test
+    fun testDuplicateSubscribeDoesNotCallClientAgain() {
+        connected().subscribe(defaultConfig, "home/light")
+        fakeClient.subscribeCalled = false
+        assertTrue(manager.subscribe(defaultConfig, "home/light"))
+        assertFalse(fakeClient.subscribeCalled)
+    }
+
+    @Test
+    fun testSubscribeLazilyConnectsWhenDisconnected() {
+        assertTrue(manager.subscribe(defaultConfig, "home/light"))
+        assertTrue(fakeClient.connectCalled)
+        assertTrue(fakeClient.subscribeCalled)
+    }
+
+    @Test
+    fun testSubscribeReturnsFalseWhenLazyConnectFails() {
+        fakeClient.throwOnConnect = true
+        assertFalse(manager.subscribe(defaultConfig, "home/light"))
+        assertFalse(fakeClient.subscribeCalled)
+    }
+
+    @Test
+    fun testSubscribeReturnsFalseWhenClientThrows() {
+        connected()
+        fakeClient.throwOnSubscribe = true
+        assertFalse(manager.subscribe(defaultConfig, "home/light"))
+        assertTrue(manager.activeSubscriptions.isEmpty())
+    }
+
+    // --- unsubscribe() ---
+
+    @Test
+    fun testUnsubscribeReturnsTrueOnSuccess() {
+        connected().subscribe(defaultConfig, "home/light")
+        assertTrue(manager.unsubscribe("home/light"))
+        assertTrue(fakeClient.unsubscribeCalled)
+    }
+
+    @Test
+    fun testUnsubscribeStopsTrackingTopic() {
+        connected().subscribe(defaultConfig, "home/light")
+        manager.unsubscribe("home/light")
+        assertTrue(manager.activeSubscriptions.isEmpty())
+    }
+
+    @Test
+    fun testUnsubscribeWhenNotSubscribedDoesNotCallClient() {
+        connected()
+        assertTrue(manager.unsubscribe("home/light"))
+        assertFalse(fakeClient.unsubscribeCalled)
+    }
+
+    @Test
+    fun testUnsubscribeRejectsBlankTopic() {
+        connected()
+        assertFalse(manager.unsubscribe("  "))
+    }
+
+    @Test
+    fun testUnsubscribeReturnsFalseWhenClientThrows() {
+        connected().subscribe(defaultConfig, "home/light")
+        fakeClient.throwOnUnsubscribe = true
+        assertFalse(manager.unsubscribe("home/light"))
+        assertEquals(setOf("home/light"), manager.activeSubscriptions)
+    }
+
+    // --- subscription lifecycle ---
+
+    @Test
+    fun testDisconnectClearsSubscriptions() {
+        connected().subscribe(defaultConfig, "home/light")
+        manager.disconnect()
+        assertTrue(manager.activeSubscriptions.isEmpty())
+    }
+
+    @Test
+    fun testReconnectAfterDropClearsStaleSubscriptions() {
+        connected().subscribe(defaultConfig, "home/light")
+        fakeClient.connected = false
+        manager.connect(defaultConfig)
+        assertTrue(manager.activeSubscriptions.isEmpty())
+    }
+
+    @Test
+    fun testSubscribeAgainAfterDropReachesClient() {
+        connected().subscribe(defaultConfig, "home/light")
+        fakeClient.connected = false
+        manager.connect(defaultConfig)
+        fakeClient.subscribeCalled = false
+        assertTrue(manager.subscribe(defaultConfig, "home/light"))
+        assertTrue(fakeClient.subscribeCalled)
+    }
+
     // --- FakeMqttClientFactory ---
 
     private class FakeMqttClientFactory(private val client: FakeMqttClient) : MqttClientFactory {
@@ -367,6 +506,12 @@ class MqttManagerTest {
         var throwOnPublish = false
         var lastPublishTopic: String? = null
         var lastPublishMessage: MqttMessage? = null
+        var subscribeCalled = false
+        var throwOnSubscribe = false
+        var lastSubscribeQos = -1
+        var unsubscribeCalled = false
+        var throwOnUnsubscribe = false
+        val subscribedTopics = mutableListOf<String>()
 
         override val isConnected get() = connected
 
@@ -381,6 +526,19 @@ class MqttManagerTest {
             publishCalled = true
             lastPublishTopic = topic
             lastPublishMessage = message
+        }
+
+        override fun subscribe(topic: String, qos: Int) {
+            if (throwOnSubscribe) throw MqttException(0)
+            subscribeCalled = true
+            subscribedTopics.add(topic)
+            lastSubscribeQos = qos
+        }
+
+        override fun unsubscribe(topic: String) {
+            if (throwOnUnsubscribe) throw MqttException(0)
+            unsubscribeCalled = true
+            subscribedTopics.remove(topic)
         }
 
         override fun disconnect() {
