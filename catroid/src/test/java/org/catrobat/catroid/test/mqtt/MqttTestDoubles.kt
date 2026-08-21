@@ -59,6 +59,8 @@ internal class FakeMqttClient : MqttClientInterface {
     var lastSubscribeQos = -1
     var unsubscribeCalled = false
     var throwOnUnsubscribe = false
+    /** Lets a test simulate Paho blocking while the broker is unreachable. */
+    var onDisconnect: (() -> Unit)? = null
     val subscribedTopics = mutableListOf<String>()
     private var storedCallback: MqttCallback? = null
 
@@ -92,6 +94,7 @@ internal class FakeMqttClient : MqttClientInterface {
     }
 
     override fun disconnect() {
+        onDisconnect?.invoke()
         disconnectCalled = true
         connected = false
     }

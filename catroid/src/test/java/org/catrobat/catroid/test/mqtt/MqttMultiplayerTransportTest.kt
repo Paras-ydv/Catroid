@@ -50,7 +50,10 @@ class MqttMultiplayerTransportTest {
     @Before
     fun setUp() {
         client = RecordingClient()
-        manager = MqttManager { _, _ -> client }
+        manager = MqttManager(
+            clientFactory = { _, _ -> client },
+            teardownExecutor = { it.run() }
+        )
         transport = MqttMultiplayerTransport(manager)
     }
 

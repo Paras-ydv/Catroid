@@ -33,11 +33,22 @@ import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
-class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClientFactory) {
+class MqttManager(
+    private val clientFactory: MqttClientFactory = DefaultMqttClientFactory,
+    /**
+     * Runs the socket teardown. Defaults to a background thread because Paho blocks
+     * while disconnecting; tests substitute a same-thread executor so teardown stays
+     * observable without sleeping.
+     */
+    private val teardownExecutor: Executor = Executor { runnable ->
+        Thread(runnable, "MqttDisconnect").apply { isDaemon = true }.start()
+    }
+) {
 
     @Volatile
     private var mqttClient: MqttClientInterface? = null
@@ -183,8 +194,16 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
 
     fun connectFromContext(context: Context) = connect(MqttConnectionConfig.fromContext(context))
 
-    fun connect(config: MqttConnectionConfig): Boolean = synchronized(this) {
+    /**
+     * Establishes a connection at the caller's request, which also re-enables
+     * automatic retrying after an earlier disconnect turned it off.
+     */
+    fun connect(config: MqttConnectionConfig): Boolean {
         autoReconnectEnabled = true
+        return establishConnection(config)
+    }
+
+    private fun establishConnection(config: MqttConnectionConfig): Boolean = synchronized(this) {
         if (isConnected) return true
         if (config.host.isBlank()) {
             Log.e(TAG, "Cannot connect: host is blank")
@@ -404,22 +423,32 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         // registered its listeners.
         listeners.clear()
         wildcardFilters.clear()
-        synchronized(this) {
-            if (mqttClient == null) return
+        subscriptions.clear()
+        desiredSubscriptions.clear()
+        incomingMessages.clear()
+        // An intentional disconnect ends the session, so queued messages are dropped
+        // rather than replayed into an unrelated later run.
+        outgoingMessages.clear()
+
+        val client = synchronized(this) {
+            mqttClient.also { mqttClient = null }
+        } ?: return
+
+        // Closing the socket is handed off rather than done here. Paho's disconnect
+        // blocks until the broker acknowledges, and when the broker has gone away it
+        // blocks for the full quiesce timeout. disconnect() is called from
+        // StageActivity.manageLoadAndFinish() on the UI thread, so doing it inline
+        // freezes the stage on a blank screen and the user cannot even leave.
+        //
+        // All state above is cleared synchronously, so the manager is immediately
+        // ready for the next stage run regardless of how long the socket takes.
+        teardownExecutor.execute {
             try {
-                mqttClient?.disconnect()
-                mqttClient?.close()
+                client.disconnect()
+                client.close()
                 Log.d(TAG, "Disconnected and closed client")
             } catch (e: MqttException) {
                 Log.e(TAG, "Error during disconnect", e)
-            } finally {
-                subscriptions.clear()
-                desiredSubscriptions.clear()
-                incomingMessages.clear()
-                // An intentional disconnect ends the session, so queued messages are
-                // dropped rather than replayed into an unrelated later run.
-                outgoingMessages.clear()
-                mqttClient = null
             }
         }
     }
@@ -456,11 +485,17 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
      * connect(). Returns false when there is nothing to reconnect to.
      */
     internal fun reconnectNow(): Boolean {
+        if (!autoReconnectEnabled) {
+            Log.d(TAG, "Auto reconnect disabled, skipping reconnect")
+            return false
+        }
         val config = lastConfig ?: run {
             Log.d(TAG, "No previous configuration, skipping reconnect")
             return false
         }
-        return connect(config)
+        // Deliberately not connect(): that would re-enable retrying, so a task queued
+        // before disconnect() would restart the very loop disconnect() switched off.
+        return establishConnection(config)
     }
 
     private fun scheduleReconnect() {
@@ -475,7 +510,8 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         val delay = backoffDelayMillis(attempt)
         Log.d(TAG, "Scheduling reconnect attempt ${attempt + 1} in ${delay}ms")
         reconnectExecutor.schedule({
-            if (!isConnected && reconnectNow().not()) {
+            // The stage may have ended while this was waiting in the queue.
+            if (autoReconnectEnabled && !isConnected && reconnectNow().not()) {
                 scheduleReconnect()
             }
         }, delay, TimeUnit.MILLISECONDS)

@@ -43,7 +43,8 @@ class MqttManagerRoutingTest {
     fun setUp() {
         fakeClient = FakeMqttClient()
         fakeFactory = FakeMqttClientFactory(fakeClient)
-        manager = MqttManager(fakeFactory)
+        // same-thread teardown so disconnect stays observable without sleeping
+        manager = MqttManager(fakeFactory) { it.run() }
     }
 
     private val defaultConfig = TEST_CONFIG

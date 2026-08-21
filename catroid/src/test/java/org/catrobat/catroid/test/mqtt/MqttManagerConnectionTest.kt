@@ -44,7 +44,8 @@ class MqttManagerConnectionTest {
     fun setUp() {
         fakeClient = FakeMqttClient()
         fakeFactory = FakeMqttClientFactory(fakeClient)
-        manager = MqttManager(fakeFactory)
+        // same-thread teardown so disconnect stays observable without sleeping
+        manager = MqttManager(fakeFactory) { it.run() }
     }
 
     private val defaultConfig = TEST_CONFIG
@@ -239,5 +240,48 @@ class MqttManagerConnectionTest {
         manager.disconnect()
         manager.disconnect()
         // no exception = pass
+    }
+
+    // --- teardown must not block the caller ---
+
+    /**
+     * disconnect() runs on the UI thread from StageActivity.manageLoadAndFinish().
+     * Paho blocks there until the broker acknowledges, so a broker that has gone
+     * away used to freeze the stage on a blank screen with no way out.
+     */
+    @Test
+    fun testDisconnectDoesNotWaitForABlockingClient() {
+        val blocker = java.util.concurrent.CountDownLatch(1)
+        val slowClient = FakeMqttClient()
+        slowClient.onDisconnect = { blocker.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+        val backgroundManager = MqttManager(FakeMqttClientFactory(slowClient))
+        backgroundManager.connect(TEST_CONFIG)
+
+        val startedAt = System.currentTimeMillis()
+        backgroundManager.disconnect()
+        val elapsed = System.currentTimeMillis() - startedAt
+
+        assertTrue("disconnect() blocked the caller for ${elapsed}ms", elapsed < 1000)
+        assertFalse(backgroundManager.isConnected)
+        blocker.countDown()
+    }
+
+    @Test
+    fun testStateIsClearedSynchronouslyEvenWhileSocketIsStillClosing() {
+        val blocker = java.util.concurrent.CountDownLatch(1)
+        val slowClient = FakeMqttClient()
+        slowClient.onDisconnect = { blocker.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+        val backgroundManager = MqttManager(FakeMqttClientFactory(slowClient))
+        backgroundManager.connect(TEST_CONFIG)
+        backgroundManager.subscribe(TEST_CONFIG, "home/light")
+        backgroundManager.register("home/light", FakeListener())
+
+        backgroundManager.disconnect()
+
+        // ready for the next stage run immediately, without waiting on the socket
+        assertTrue(backgroundManager.activeSubscriptions.isEmpty())
+        assertTrue(backgroundManager.registeredTopics.isEmpty())
+        assertFalse(backgroundManager.isConnected)
+        blocker.countDown()
     }
 }

@@ -23,9 +23,11 @@
 
 package org.catrobat.catroid.devices.mqtt
 
+import android.util.Log
 import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttClient
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
+import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 
@@ -33,10 +35,27 @@ class PahoMqttClient(brokerUrl: String, clientId: String) : MqttClientInterface 
     private val client = MqttClient(brokerUrl, clientId, MemoryPersistence())
     override val isConnected get() = client.isConnected
     override fun connect(options: MqttConnectOptions) = client.connect(options)
-    override fun disconnect() = client.disconnect()
+    /**
+     * Bounded so a broker that has gone away cannot hold the caller for Paho's
+     * 30 second default. If the polite disconnect does not complete in time, the
+     * connection is dropped outright: the stage is ending either way.
+     */
+    override fun disconnect() {
+        try {
+            client.disconnect(DISCONNECT_QUIESCE_MILLIS)
+        } catch (e: MqttException) {
+            Log.w(TAG, "Graceful disconnect failed, forcing", e)
+            client.disconnectForcibly(DISCONNECT_QUIESCE_MILLIS, DISCONNECT_QUIESCE_MILLIS)
+        }
+    }
     override fun close() = client.close()
     override fun setCallback(callback: MqttCallback) = client.setCallback(callback)
     override fun publish(topic: String, message: MqttMessage) = client.publish(topic, message)
     override fun subscribe(topic: String, qos: Int) = client.subscribe(topic, qos)
     override fun unsubscribe(topic: String) = client.unsubscribe(topic)
+
+    companion object {
+        private val TAG = PahoMqttClient::class.java.simpleName
+        private const val DISCONNECT_QUIESCE_MILLIS = 1000L
+    }
 }

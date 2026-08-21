@@ -43,7 +43,8 @@ class MqttManagerSubscriptionTest {
     fun setUp() {
         fakeClient = FakeMqttClient()
         fakeFactory = FakeMqttClientFactory(fakeClient)
-        manager = MqttManager(fakeFactory)
+        // same-thread teardown so disconnect stays observable without sleeping
+        manager = MqttManager(fakeFactory) { it.run() }
     }
 
     private val defaultConfig = TEST_CONFIG
@@ -296,5 +297,41 @@ class MqttManagerSubscriptionTest {
         manager.connect(defaultConfig)
 
         assertEquals(listOf("home/light"), fakeClient.subscribedTopics)
+    }
+    // --- retrying must stop when the stage ends ---
+
+    /**
+     * A reconnect task queued before disconnect() fires afterwards. It used to call
+     * connect(), which re-enabled retrying, so the app kept reconnecting in the
+     * background long after the user left the stage.
+     */
+    @Test
+    fun testReconnectAfterDisconnectIsRefused() {
+        connected()
+        manager.disconnect()
+        fakeClient.connectCalled = false
+
+        assertFalse(manager.reconnectNow())
+        assertFalse("a queued retry reconnected after the stage ended", fakeClient.connectCalled)
+    }
+
+    @Test
+    fun testRefusedReconnectDoesNotReEnableRetrying() {
+        connected()
+        manager.disconnect()
+        manager.reconnectNow()
+        // still refused on a second firing, i.e. the loop did not re-arm itself
+        assertFalse(manager.reconnectNow())
+    }
+
+    @Test
+    fun testExplicitConnectReEnablesRetryingAfterDisconnect() {
+        connected()
+        manager.disconnect()
+        fakeClient.connectCalled = false
+
+        assertTrue(manager.connect(defaultConfig))
+        fakeClient.connected = false
+        assertTrue(manager.reconnectNow())
     }
 }
