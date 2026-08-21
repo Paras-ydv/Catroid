@@ -43,6 +43,19 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
 
     internal val activeSubscriptions: Set<String> get() = subscriptions.keys.toSet()
 
+    private val incomingMessages = MqttMessageQueue()
+
+    internal val pendingMessageCount: Int get() = incomingMessages.size
+
+    /**
+     * Drains everything the network thread has buffered and routes it to the
+     * registered listeners. Must be called from the thread that is allowed to
+     * touch Catroid state, which is the render thread while a stage is running.
+     */
+    fun dispatchPendingMessages() {
+        incomingMessages.drain().forEach { dispatchMessage(it.topic, it.payload) }
+    }
+
     private val listeners = ConcurrentHashMap<String, CopyOnWriteArraySet<MqttListener>>()
 
     internal val registeredTopics: Set<String> get() = listeners.keys.toSet()
@@ -272,6 +285,7 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
                 Log.e(TAG, "Error during disconnect", e)
             } finally {
                 subscriptions.clear()
+                incomingMessages.clear()
                 mqttClient = null
             }
         }
@@ -296,7 +310,8 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             Log.e(TAG, "Connection lost: ${cause?.message}")
         }
         override fun messageArrived(topic: String, message: MqttMessage) {
-            dispatchMessage(topic, String(message.payload, Charsets.UTF_8))
+            // Runs on the Paho network thread: buffer only, never route from here.
+            incomingMessages.enqueue(topic, String(message.payload, Charsets.UTF_8))
         }
         // Delivery tokens are not used until publish is implemented in a later ticket.
         override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit

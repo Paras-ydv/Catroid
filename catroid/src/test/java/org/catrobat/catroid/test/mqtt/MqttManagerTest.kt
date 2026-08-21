@@ -578,6 +578,73 @@ class MqttManagerTest {
         assertEquals(1, healthy.received.size)
     }
 
+    // --- incoming message queue ---
+
+    private fun deliverFromBroker(topic: String, payload: String) {
+        connected()
+        fakeClient.deliver(topic, payload)
+    }
+
+    @Test
+    fun testBrokerMessageIsQueuedNotRoutedImmediately() {
+        val listener = FakeListener()
+        manager.register("home/temp", listener)
+        deliverFromBroker("home/temp", "22.5")
+        assertTrue(listener.received.isEmpty())
+        assertEquals(1, manager.pendingMessageCount)
+    }
+
+    @Test
+    fun testDispatchPendingMessagesRoutesQueuedMessage() {
+        val listener = FakeListener()
+        manager.register("home/temp", listener)
+        deliverFromBroker("home/temp", "22.5")
+        manager.dispatchPendingMessages()
+        assertEquals(listOf("home/temp" to "22.5"), listener.received)
+    }
+
+    @Test
+    fun testDispatchPendingMessagesEmptiesQueue() {
+        manager.register("home/temp", FakeListener())
+        deliverFromBroker("home/temp", "22.5")
+        manager.dispatchPendingMessages()
+        assertEquals(0, manager.pendingMessageCount)
+    }
+
+    @Test
+    fun testDispatchPendingMessagesPreservesArrivalOrder() {
+        val listener = FakeListener()
+        manager.register("home/temp", listener)
+        connected()
+        fakeClient.deliver("home/temp", "first")
+        fakeClient.deliver("home/temp", "second")
+        manager.dispatchPendingMessages()
+        assertEquals(listOf("first", "second"), listener.received.map { it.second })
+    }
+
+    @Test
+    fun testDispatchPendingMessagesWithEmptyQueueDoesNotCrash() {
+        manager.dispatchPendingMessages()
+    }
+
+    @Test
+    fun testBrokerPayloadIsDecodedAsUtf8() {
+        val listener = FakeListener()
+        manager.register("home/text", listener)
+        connected()
+        fakeClient.deliverBytes("home/text", "grüße✓".toByteArray(Charsets.UTF_8))
+        manager.dispatchPendingMessages()
+        assertEquals("grüße✓", listener.received.single().second)
+    }
+
+    @Test
+    fun testDisconnectDiscardsQueuedMessages() {
+        manager.register("home/temp", FakeListener())
+        deliverFromBroker("home/temp", "22.5")
+        manager.disconnect()
+        assertEquals(0, manager.pendingMessageCount)
+    }
+
     private class FakeListener : MqttListener {
         val received = mutableListOf<Pair<String, String>>()
         override fun onMessageReceived(topic: String, payload: String) {
@@ -614,6 +681,7 @@ class MqttManagerTest {
         var unsubscribeCalled = false
         var throwOnUnsubscribe = false
         val subscribedTopics = mutableListOf<String>()
+        private var callback: MqttCallback? = null
 
         override val isConnected get() = connected
 
@@ -654,6 +722,20 @@ class MqttManagerTest {
 
         override fun setCallback(callback: MqttCallback) {
             callbackSet = true
+            this.callback = callback
+        }
+
+        /** Simulates the broker delivering a message on the Paho network thread. */
+        fun deliver(topic: String, payload: String) =
+            deliverBytes(topic, payload.toByteArray(Charsets.UTF_8))
+
+        fun deliverBytes(topic: String, payload: ByteArray) {
+            callback?.messageArrived(topic, MqttMessage(payload))
+        }
+
+        fun dropConnection(cause: Throwable = MqttException(0)) {
+            connected = false
+            callback?.connectionLost(cause)
         }
     }
 }
