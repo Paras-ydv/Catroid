@@ -50,6 +50,7 @@ import org.catrobat.catroid.content.bricks.Brick;
 import org.catrobat.catroid.devices.mindstorms.MindstormsException;
 import org.catrobat.catroid.devices.mqtt.MqttConnectionConfig;
 import org.catrobat.catroid.devices.mqtt.MqttManager;
+import org.catrobat.catroid.devices.mqtt.MqttScriptRegistrar;
 import org.catrobat.catroid.devices.raspberrypi.RaspberryPiService;
 import org.catrobat.catroid.formulaeditor.SensorHandler;
 import org.catrobat.catroid.formulaeditor.SensorLoudness;
@@ -533,7 +534,15 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 		// must not run on the UI thread. The resource callbacks are posted back because
 		// finishing initialisation touches the stage.
 		new Thread(() -> {
-			boolean connected = get(MqttManager.class).connect(config);
+			MqttManager mqttManager = get(MqttManager.class);
+			boolean connected = mqttManager.connect(config);
+			if (connected) {
+				// Subscribe before the stage starts: MQTT delivers nothing that was
+				// published before the subscription existed, so a receive script that
+				// subscribed lazily would miss the messages it was waiting for.
+				new MqttScriptRegistrar(mqttManager, config)
+						.registerScriptsOf(ProjectManager.getInstance().getCurrentProject());
+			}
 			stageActivity.runOnUiThread(() -> {
 				if (connected) {
 					resourceInitialized();
