@@ -50,10 +50,12 @@ import org.catrobat.catroid.content.bricks.Brick;
 import org.catrobat.catroid.devices.mindstorms.MindstormsException;
 import org.catrobat.catroid.devices.mqtt.MqttConnectionConfig;
 import org.catrobat.catroid.devices.mqtt.MqttManager;
+import org.catrobat.catroid.devices.mqtt.MqttMultiplayerTransport;
 import org.catrobat.catroid.devices.mqtt.MqttScriptRegistrar;
 import org.catrobat.catroid.devices.raspberrypi.RaspberryPiService;
 import org.catrobat.catroid.formulaeditor.SensorHandler;
 import org.catrobat.catroid.formulaeditor.SensorLoudness;
+import org.catrobat.catroid.formulaeditor.UserVariable;
 import org.catrobat.catroid.sensing.GatherCollisionInformationTask;
 import org.catrobat.catroid.ui.runtimepermissions.BrickResourcesToRuntimePermissions;
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment;
@@ -68,6 +70,8 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+
+import kotlin.Unit;
 
 import static android.app.Activity.RESULT_CANCELED;
 import static android.app.Activity.RESULT_OK;
@@ -540,8 +544,9 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 				// Subscribe before the stage starts: MQTT delivers nothing that was
 				// published before the subscription existed, so a receive script that
 				// subscribed lazily would miss the messages it was waiting for.
-				new MqttScriptRegistrar(mqttManager, config)
-						.registerScriptsOf(ProjectManager.getInstance().getCurrentProject());
+				Project project = ProjectManager.getInstance().getCurrentProject();
+				new MqttScriptRegistrar(mqttManager, config).registerScriptsOf(project);
+				startMqttMultiplayer(project, config);
 			}
 			stageActivity.runOnUiThread(() -> {
 				if (connected) {
@@ -551,6 +556,33 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 				}
 			});
 		}, "MqttConnect").start();
+	}
+
+	/**
+	 * Starts MQTT multiplayer only for projects that actually declare multiplayer
+	 * variables, so an ordinary MQTT project does not join a room or produce traffic
+	 * it never asked for.
+	 *
+	 * The room is derived from the project name because every player runs the same
+	 * project, and Catroid has no separate room configuration to read. The sender id
+	 * is the MQTT client id, which is unique per device and is what lets a client
+	 * ignore the echo of its own publishes.
+	 */
+	private void startMqttMultiplayer(Project project, MqttConnectionConfig config) {
+		if (project.getMultiplayerVariables().isEmpty()) {
+			return;
+		}
+		String room = project.getName();
+		String sender = config.getClientId().isEmpty()
+				? Build.MODEL + "-" + android.os.Process.myPid() : config.getClientId();
+
+		get(MqttMultiplayerTransport.class).start(config, room, sender, (name, value) -> {
+			UserVariable variable = project.getMultiplayerVariable(name);
+			if (variable != null) {
+				variable.setValue(value);
+			}
+			return Unit.INSTANCE;
+		});
 	}
 
 	private void connectRaspberrySocket() {

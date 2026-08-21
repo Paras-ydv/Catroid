@@ -54,6 +54,7 @@ import org.catrobat.catroid.ui.recyclerview.repository.DefaultMqttPasswordReposi
 import org.catrobat.catroid.devices.mqtt.MqttClientFactory
 import org.catrobat.catroid.devices.mqtt.DefaultMqttClientFactory
 import org.catrobat.catroid.devices.mqtt.MqttManager
+import org.catrobat.catroid.devices.mqtt.MqttMultiplayerTransport
 import org.catrobat.catroid.ui.recyclerview.repository.ProjectCategoriesRepository
 import org.catrobat.catroid.ui.settingsfragments.SettingsFragment.MQTT_ENCRYPTED_PREFS
 import org.catrobat.catroid.ui.recyclerview.viewmodel.MainFragmentViewModel
@@ -84,6 +85,7 @@ val componentsModules = module(createdAtStart = true, override = false) {
 
     single<MqttClientFactory> { DefaultMqttClientFactory }
     single { MqttManager(get()) }
+    single { MqttMultiplayerTransport(get()) }
 
     single { BackpackListManager.getInstance() }
     single {
