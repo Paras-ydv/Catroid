@@ -1275,6 +1275,16 @@
     <string formatted="false" name="brick_replace_item_in_userlist_item_at_index">at position</string>
     <string formatted="false" name="brick_replace_item_in_userlist_with_value">with</string>
 
+    <string formatted="false" name="brick_publish_mqtt_message">Publish via MQTT the message</string>
+    <string formatted="false" name="brick_publish_mqtt_on_topic">on topic</string>
+    <string formatted="false" name="brick_publish_mqtt_qos">Quality of service</string>
+    <string formatted="false" name="brick_publish_mqtt_retained">Keep last message on broker</string>
+    <string formatted="false" name="brick_publish_mqtt_default_message">Hello</string>
+    <string formatted="false" name="brick_publish_mqtt_default_topic">catrobat/home/light1/set</string>
+    <string formatted="false" name="brick_when_mqtt_message_received">When MQTT message received on</string>
+    <string formatted="false" name="brick_when_mqtt_default_topic">catrobat/home/light1/state</string>
+    <string formatted="false" name="brick_when_mqtt_store_payload_in">store message in</string>
+    <string formatted="false" name="brick_when_mqtt_store_topic_in">store topic in</string>
     <string formatted="false" name="brick_web_request">Send web request to</string>
     <string formatted="false" name="brick_web_request_default_value">https://catrob.at/joke</string>
     <string formatted="false" name="brick_web_request_result">and store answer in</string>
