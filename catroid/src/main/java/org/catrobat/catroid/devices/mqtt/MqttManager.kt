@@ -176,7 +176,7 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         private const val MULTI_LEVEL_WILDCARD = '#'
         private const val SINGLE_LEVEL_WILDCARD = '+'
         private const val INITIAL_BACKOFF_MILLIS = 1000L
-        private const val MAX_BACKOFF_MILLIS = 60000L
+        private const val MAX_BACKOFF_MILLIS = 60_000L
         private const val MAX_BACKOFF_EXPONENT = 6
         private const val MAX_RECONNECT_ATTEMPTS = 10
     }
@@ -481,7 +481,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         }
         override fun messageArrived(topic: String, message: MqttMessage) {
             // Runs on the Paho network thread: buffer only, never route from here.
-            incomingMessages.enqueue(topic, String(message.payload, Charsets.UTF_8))
+            incomingMessages.enqueue(
+                ReceivedMqttMessage(topic, String(message.payload, Charsets.UTF_8))
+            )
         }
         // Delivery tokens are not used until publish is implemented in a later ticket.
         override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit

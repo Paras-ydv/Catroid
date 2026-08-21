@@ -59,29 +59,29 @@ class MqttMessageQueueTest {
 
     @Test
     fun testEnqueueMakesQueueNonEmpty() {
-        queue.enqueue("home/temp", "22.5")
+        queue.enqueue(ReceivedMqttMessage("home/temp", "22.5"))
         assertFalse(queue.isEmpty())
         assertEquals(1, queue.size)
     }
 
     @Test
     fun testDequeueReturnsEnqueuedMessage() {
-        queue.enqueue("home/temp", "22.5")
+        queue.enqueue(ReceivedMqttMessage("home/temp", "22.5"))
         assertEquals(ReceivedMqttMessage("home/temp", "22.5"), queue.dequeue())
     }
 
     @Test
     fun testDequeueRemovesMessage() {
-        queue.enqueue("home/temp", "22.5")
+        queue.enqueue(ReceivedMqttMessage("home/temp", "22.5"))
         queue.dequeue()
         assertTrue(queue.isEmpty())
     }
 
     @Test
     fun testDequeuePreservesFifoOrder() {
-        queue.enqueue("t", "first")
-        queue.enqueue("t", "second")
-        queue.enqueue("t", "third")
+        queue.enqueue(ReceivedMqttMessage("t", "first"))
+        queue.enqueue(ReceivedMqttMessage("t", "second"))
+        queue.enqueue(ReceivedMqttMessage("t", "third"))
         assertEquals("first", queue.dequeue()?.payload)
         assertEquals("second", queue.dequeue()?.payload)
         assertEquals("third", queue.dequeue()?.payload)
@@ -89,35 +89,35 @@ class MqttMessageQueueTest {
 
     @Test
     fun testDrainPreservesFifoOrder() {
-        queue.enqueue("t", "first")
-        queue.enqueue("t", "second")
+        queue.enqueue(ReceivedMqttMessage("t", "first"))
+        queue.enqueue(ReceivedMqttMessage("t", "second"))
         assertEquals(listOf("first", "second"), queue.drain().map { it.payload })
     }
 
     @Test
     fun testDrainEmptiesQueue() {
-        queue.enqueue("t", "first")
+        queue.enqueue(ReceivedMqttMessage("t", "first"))
         queue.drain()
         assertTrue(queue.isEmpty())
     }
 
     @Test
     fun testSamePayloadOnDifferentTopicsAreBothQueued() {
-        queue.enqueue("home/a", "ON")
-        queue.enqueue("home/b", "ON")
+        queue.enqueue(ReceivedMqttMessage("home/a", "ON"))
+        queue.enqueue(ReceivedMqttMessage("home/b", "ON"))
         assertEquals(listOf("home/a", "home/b"), queue.drain().map { it.topic })
     }
 
     @Test
     fun testDuplicateMessagesAreNotCollapsed() {
-        queue.enqueue("t", "same")
-        queue.enqueue("t", "same")
+        queue.enqueue(ReceivedMqttMessage("t", "same"))
+        queue.enqueue(ReceivedMqttMessage("t", "same"))
         assertEquals(2, queue.size)
     }
 
     @Test
     fun testClearEmptiesQueue() {
-        queue.enqueue("t", "first")
+        queue.enqueue(ReceivedMqttMessage("t", "first"))
         queue.clear()
         assertTrue(queue.isEmpty())
     }
@@ -125,14 +125,14 @@ class MqttMessageQueueTest {
     @Test
     fun testQueueIsBoundedAtCapacity() {
         val bounded = MqttMessageQueue(capacity = 3)
-        repeat(5) { bounded.enqueue("t", "message-$it") }
+        repeat(5) { bounded.enqueue(ReceivedMqttMessage("t", "message-$it")) }
         assertEquals(3, bounded.size)
     }
 
     @Test
     fun testOldestMessageIsDroppedWhenCapacityExceeded() {
         val bounded = MqttMessageQueue(capacity = 3)
-        repeat(5) { bounded.enqueue("t", "message-$it") }
+        repeat(5) { bounded.enqueue(ReceivedMqttMessage("t", "message-$it")) }
         assertEquals(
             listOf("message-2", "message-3", "message-4"),
             bounded.drain().map { it.payload }
@@ -141,7 +141,7 @@ class MqttMessageQueueTest {
 
     @Test
     fun testEmptyPayloadIsQueued() {
-        queue.enqueue("t", "")
+        queue.enqueue(ReceivedMqttMessage("t", ""))
         assertEquals("", queue.dequeue()?.payload)
     }
 }

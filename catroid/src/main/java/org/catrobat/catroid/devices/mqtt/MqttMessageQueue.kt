@@ -54,8 +54,6 @@ class MqttMessageQueue(private val capacity: Int = DEFAULT_CAPACITY) {
         }
     }
 
-    fun enqueue(topic: String, payload: String) = enqueue(ReceivedMqttMessage(topic, payload))
-
     /** Returns the oldest buffered message, or null when nothing is pending. */
     fun dequeue(): ReceivedMqttMessage? = queue.poll()
 
