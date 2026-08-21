@@ -26,6 +26,7 @@ package org.catrobat.catroid.test.mqtt
 import org.catrobat.catroid.devices.mqtt.MqttClientFactory
 import org.catrobat.catroid.devices.mqtt.MqttClientInterface
 import org.catrobat.catroid.devices.mqtt.MqttConnectionConfig
+import org.catrobat.catroid.devices.mqtt.MqttListener
 import org.catrobat.catroid.devices.mqtt.MqttManager
 import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
@@ -481,6 +482,85 @@ class MqttManagerTest {
         fakeClient.subscribeCalled = false
         assertTrue(manager.subscribe(defaultConfig, "home/light"))
         assertTrue(fakeClient.subscribeCalled)
+    }
+
+    // --- listeners ---
+
+    @Test
+    fun testDispatchDeliversTopicAndPayloadToListener() {
+        val listener = FakeListener()
+        manager.addListener(listener)
+        manager.dispatchMessage("home/temp", "22.5")
+        assertEquals(listOf("home/temp" to "22.5"), listener.received)
+    }
+
+    @Test
+    fun testDispatchDeliversToAllRegisteredListeners() {
+        val first = FakeListener()
+        val second = FakeListener()
+        manager.addListener(first)
+        manager.addListener(second)
+        manager.dispatchMessage("home/temp", "22.5")
+        assertEquals(1, first.received.size)
+        assertEquals(1, second.received.size)
+    }
+
+    @Test
+    fun testRemovedListenerStopsReceivingMessages() {
+        val listener = FakeListener()
+        manager.addListener(listener)
+        manager.removeListener(listener)
+        manager.dispatchMessage("home/temp", "22.5")
+        assertTrue(listener.received.isEmpty())
+    }
+
+    @Test
+    fun testRemovingOneListenerKeepsOthers() {
+        val removed = FakeListener()
+        val kept = FakeListener()
+        manager.addListener(removed)
+        manager.addListener(kept)
+        manager.removeListener(removed)
+        manager.dispatchMessage("home/temp", "22.5")
+        assertTrue(removed.received.isEmpty())
+        assertEquals(1, kept.received.size)
+    }
+
+    @Test
+    fun testListenerCanBeReAddedAfterRemoval() {
+        val listener = FakeListener()
+        manager.addListener(listener)
+        manager.removeListener(listener)
+        manager.addListener(listener)
+        manager.dispatchMessage("home/temp", "22.5")
+        assertEquals(1, listener.received.size)
+    }
+
+    @Test
+    fun testRemovingUnregisteredListenerDoesNotCrash() {
+        manager.removeListener(FakeListener())
+    }
+
+    @Test
+    fun testDispatchWithNoListenersDoesNotCrash() {
+        manager.dispatchMessage("home/temp", "22.5")
+    }
+
+    @Test
+    fun testThrowingListenerDoesNotPreventOtherListeners() {
+        val throwing = MqttListener { _, _ -> throw IllegalStateException("boom") }
+        val healthy = FakeListener()
+        manager.addListener(throwing)
+        manager.addListener(healthy)
+        manager.dispatchMessage("home/temp", "22.5")
+        assertEquals(1, healthy.received.size)
+    }
+
+    private class FakeListener : MqttListener {
+        val received = mutableListOf<Pair<String, String>>()
+        override fun onMessageReceived(topic: String, payload: String) {
+            received.add(topic to payload)
+        }
     }
 
     // --- FakeMqttClientFactory ---

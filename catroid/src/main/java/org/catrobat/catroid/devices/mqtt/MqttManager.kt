@@ -32,6 +32,7 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 
 class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClientFactory) {
 
@@ -41,6 +42,36 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
     private val subscriptions = ConcurrentHashMap<String, Int>()
 
     internal val activeSubscriptions: Set<String> get() = subscriptions.keys.toSet()
+
+    private val listeners = CopyOnWriteArraySet<MqttListener>()
+
+    fun addListener(listener: MqttListener) {
+        if (listeners.add(listener)) {
+            Log.d(TAG, "Listener registered")
+        }
+    }
+
+    fun removeListener(listener: MqttListener) {
+        if (listeners.remove(listener)) {
+            Log.d(TAG, "Listener removed")
+        }
+    }
+
+    /**
+     * Hands a received message to every registered listener. A listener that throws
+     * must not prevent the remaining listeners from seeing the message, so failures
+     * are contained per listener rather than aborting the dispatch.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    internal fun dispatchMessage(topic: String, payload: String) {
+        listeners.forEach { listener ->
+            try {
+                listener.onMessageReceived(topic, payload)
+            } catch (e: Exception) {
+                Log.e(TAG, "Listener failed handling message on '$topic'", e)
+            }
+        }
+    }
 
     val isConnected: Boolean
         get() = mqttClient?.isConnected == true
@@ -243,8 +274,9 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         override fun connectionLost(cause: Throwable?) {
             Log.e(TAG, "Connection lost: ${cause?.message}")
         }
-        // Message handling is implemented in a later ticket.
-        override fun messageArrived(topic: String, message: MqttMessage) = Unit
+        override fun messageArrived(topic: String, message: MqttMessage) {
+            dispatchMessage(topic, String(message.payload, Charsets.UTF_8))
+        }
         // Delivery tokens are not used until publish is implemented in a later ticket.
         override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
     }
