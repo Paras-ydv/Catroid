@@ -29,10 +29,9 @@ import org.catrobat.catroid.devices.mqtt.MqttConnectionConfig
 import org.catrobat.catroid.devices.mqtt.MqttManager
 import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
+import org.eclipse.paho.client.mqttv3.MqttException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -52,23 +51,10 @@ class MqttManagerTest {
 
     private val defaultConfig = MqttConnectionConfig("localhost", 1883, "client-1", "", "", false)
 
-    // --- Singleton ---
-
-    @Test
-    fun testMqttManagerInstanceIsNotNull() {
-        assertNotNull(MqttManager.instance)
-    }
-
-    @Test
-    fun testMqttManagerIsSingleton() {
-        assertSame(MqttManager.instance, MqttManager.instance)
-    }
-
     // --- Initial state ---
 
     @Test
     fun testIsNotConnectedInitially() {
-        fakeClient.connected = false
         assertFalse(manager.isConnected)
     }
 
@@ -148,7 +134,7 @@ class MqttManagerTest {
     }
 
     @Test
-    fun testConnectDoesNotCloseAlreadyConnectedClient() {
+    fun testConnectWhenAlreadyConnectedDoesNotCloseClient() {
         manager.connect(defaultConfig)
         fakeClient.closeCalled = false
         manager.connect(defaultConfig)
@@ -226,7 +212,6 @@ class MqttManagerTest {
 
     @Test
     fun testDisconnectWhenNoClientDoesNotCallClient() {
-        manager = MqttManager(FakeMqttClientFactory(fakeClient))
         manager.disconnect()
         assertFalse(fakeClient.disconnectCalled)
         assertFalse(fakeClient.closeCalled)
@@ -268,22 +253,20 @@ class MqttManagerTest {
 
     // --- FakeMqttClient ---
 
-    private inner class FakeMqttClient : MqttClientInterface {
+    private class FakeMqttClient : MqttClientInterface {
         var connected = false
         var connectCalled = false
         var disconnectCalled = false
         var closeCalled = false
         var callbackSet = false
         var throwOnConnect = false
-        var lastConnectOptions: MqttConnectOptions? = null
 
         override val isConnected get() = connected
 
         override fun connect(options: MqttConnectOptions) {
-            if (throwOnConnect) throw org.eclipse.paho.client.mqttv3.MqttException(0)
+            if (throwOnConnect) throw MqttException(0)
             connectCalled = true
             connected = true
-            lastConnectOptions = options
         }
 
         override fun disconnect() {

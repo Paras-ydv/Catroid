@@ -41,13 +41,10 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         get() = mqttClient?.isConnected == true
 
     companion object {
-        private val TAG = MqttManager::class.simpleName
+        private val TAG = MqttManager::class.java.simpleName
         private const val TCP_SCHEME = "tcp"
         private const val SSL_SCHEME = "ssl"
         private const val CONNECTION_TIMEOUT = 5
-
-        @JvmStatic
-        val instance: MqttManager by lazy { MqttManager() }
     }
 
     fun connectFromContext(context: Context) = connect(MqttConnectionConfig.fromContext(context))
@@ -70,7 +67,7 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         return try {
             val brokerUrl = buildServerUri(config.host, config.port, config.useTls)
             val resolvedClientId = config.clientId.ifEmpty { MqttClient.generateClientId() }
-            val client = mqttClient ?: clientFactory.create(brokerUrl, resolvedClientId).also { mqttClient = it }
+            val client = clientFactory.create(brokerUrl, resolvedClientId).also { mqttClient = it }
             client.setCallback(callback)
             client.connect(buildConnectOptions(config.username, config.password))
             val connected = client.isConnected
