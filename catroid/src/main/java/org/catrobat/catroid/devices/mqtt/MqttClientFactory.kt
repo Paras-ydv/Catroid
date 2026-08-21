@@ -27,7 +27,4 @@ fun interface MqttClientFactory {
     fun create(brokerUrl: String, clientId: String): MqttClientInterface
 }
 
-object DefaultMqttClientFactory : MqttClientFactory {
-    override fun create(brokerUrl: String, clientId: String): MqttClientInterface =
-        PahoMqttClient(brokerUrl, clientId)
-}
+val DefaultMqttClientFactory = MqttClientFactory { brokerUrl, clientId -> PahoMqttClient(brokerUrl, clientId) }
