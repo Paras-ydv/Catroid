@@ -30,6 +30,7 @@ import org.catrobat.catroid.devices.mqtt.MqttManager
 import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttException
+import org.eclipse.paho.client.mqttv3.MqttMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -241,6 +242,108 @@ class MqttManagerTest {
         // no exception = pass
     }
 
+    // --- publish() ---
+
+    private fun connected(): MqttManager = manager.also { it.connect(defaultConfig) }
+
+    @Test
+    fun testPublishReturnsTrueOnSuccess() {
+        assertTrue(connected().publish(defaultConfig, "home/light", "ON"))
+        assertTrue(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishSendsTopicAndPayload() {
+        connected().publish(defaultConfig, "home/light", "ON")
+        assertEquals("home/light", fakeClient.lastPublishTopic)
+        assertEquals("ON", String(fakeClient.lastPublishMessage!!.payload, Charsets.UTF_8))
+    }
+
+    @Test
+    fun testPublishEncodesPayloadAsUtf8() {
+        connected().publish(defaultConfig, "home/text", "grüße✓")
+        assertEquals("grüße✓", String(fakeClient.lastPublishMessage!!.payload, Charsets.UTF_8))
+    }
+
+    @Test
+    fun testPublishAllowsEmptyPayload() {
+        assertTrue(connected().publish(defaultConfig, "home/light", ""))
+        assertEquals(0, fakeClient.lastPublishMessage!!.payload.size)
+    }
+
+    @Test
+    fun testPublishAppliesQosAndRetainedFlag() {
+        connected().publish(defaultConfig, "home/light", "ON", qos = 2, retained = true)
+        assertEquals(2, fakeClient.lastPublishMessage!!.qos)
+        assertTrue(fakeClient.lastPublishMessage!!.isRetained)
+    }
+
+    @Test
+    fun testPublishDefaultsToQosZeroNotRetained() {
+        connected().publish(defaultConfig, "home/light", "ON")
+        assertEquals(0, fakeClient.lastPublishMessage!!.qos)
+        assertFalse(fakeClient.lastPublishMessage!!.isRetained)
+    }
+
+    @Test
+    fun testPublishRejectsBlankTopic() {
+        assertFalse(connected().publish(defaultConfig, "   ", "ON"))
+        assertFalse(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishRejectsMultiLevelWildcardTopic() {
+        assertFalse(connected().publish(defaultConfig, "home/#", "ON"))
+        assertFalse(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishRejectsSingleLevelWildcardTopic() {
+        assertFalse(connected().publish(defaultConfig, "home/+/state", "ON"))
+        assertFalse(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishRejectsQosAboveRange() {
+        assertFalse(connected().publish(defaultConfig, "home/light", "ON", qos = 3))
+        assertFalse(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishRejectsNegativeQos() {
+        assertFalse(connected().publish(defaultConfig, "home/light", "ON", qos = -1))
+        assertFalse(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishLazilyConnectsWhenDisconnected() {
+        assertTrue(manager.publish(defaultConfig, "home/light", "ON"))
+        assertTrue(fakeClient.connectCalled)
+        assertTrue(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishDoesNotReconnectWhenAlreadyConnected() {
+        connected()
+        fakeClient.connectCalled = false
+        manager.publish(defaultConfig, "home/light", "ON")
+        assertFalse(fakeClient.connectCalled)
+    }
+
+    @Test
+    fun testPublishReturnsFalseWhenLazyConnectFails() {
+        fakeClient.throwOnConnect = true
+        assertFalse(manager.publish(defaultConfig, "home/light", "ON"))
+        assertFalse(fakeClient.publishCalled)
+    }
+
+    @Test
+    fun testPublishReturnsFalseWhenClientThrows() {
+        connected()
+        fakeClient.throwOnPublish = true
+        assertFalse(manager.publish(defaultConfig, "home/light", "ON"))
+    }
+
     // --- FakeMqttClientFactory ---
 
     private class FakeMqttClientFactory(private val client: FakeMqttClient) : MqttClientFactory {
@@ -260,6 +363,10 @@ class MqttManagerTest {
         var closeCalled = false
         var callbackSet = false
         var throwOnConnect = false
+        var publishCalled = false
+        var throwOnPublish = false
+        var lastPublishTopic: String? = null
+        var lastPublishMessage: MqttMessage? = null
 
         override val isConnected get() = connected
 
@@ -267,6 +374,13 @@ class MqttManagerTest {
             if (throwOnConnect) throw MqttException(0)
             connectCalled = true
             connected = true
+        }
+
+        override fun publish(topic: String, message: MqttMessage) {
+            if (throwOnPublish) throw MqttException(0)
+            publishCalled = true
+            lastPublishTopic = topic
+            lastPublishMessage = message
         }
 
         override fun disconnect() {

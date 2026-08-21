@@ -45,6 +45,11 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
         private const val TCP_SCHEME = "tcp"
         private const val SSL_SCHEME = "ssl"
         private const val CONNECTION_TIMEOUT = 5
+        private const val MIN_QOS = 0
+        private const val MAX_QOS = 2
+        const val DEFAULT_QOS = 0
+        private const val MULTI_LEVEL_WILDCARD = '#'
+        private const val SINGLE_LEVEL_WILDCARD = '+'
     }
 
     fun connectFromContext(context: Context) = connect(MqttConnectionConfig.fromContext(context))
@@ -84,6 +89,57 @@ class MqttManager(private val clientFactory: MqttClientFactory = DefaultMqttClie
             false
         }
     }
+
+    fun publishFromContext(
+        context: Context,
+        topic: String,
+        payload: String,
+        qos: Int = DEFAULT_QOS,
+        retained: Boolean = false
+    ) = publish(MqttConnectionConfig.fromContext(context), topic, payload, qos, retained)
+
+    fun publish(
+        config: MqttConnectionConfig,
+        topic: String,
+        payload: String,
+        qos: Int = DEFAULT_QOS,
+        retained: Boolean = false
+    ): Boolean {
+        if (topic.isBlank()) {
+            Log.e(TAG, "Cannot publish: topic is blank")
+            return false
+        }
+        if (topic.contains(MULTI_LEVEL_WILDCARD) || topic.contains(SINGLE_LEVEL_WILDCARD)) {
+            Log.e(TAG, "Cannot publish: topic contains wildcard characters")
+            return false
+        }
+        if (qos !in MIN_QOS..MAX_QOS) {
+            Log.e(TAG, "Cannot publish: invalid QoS value $qos")
+            return false
+        }
+        if (!isConnected && !connect(config)) {
+            Log.e(TAG, "Cannot publish: connection failed")
+            return false
+        }
+        val client = mqttClient ?: run {
+            Log.e(TAG, "Cannot publish: client is null")
+            return false
+        }
+        return try {
+            client.publish(topic, buildMessage(payload, qos, retained))
+            Log.d(TAG, "Published message to '$topic'")
+            true
+        } catch (e: MqttException) {
+            Log.e(TAG, "Failed to publish to '$topic'", e)
+            false
+        }
+    }
+
+    internal fun buildMessage(payload: String, qos: Int, retained: Boolean) =
+        MqttMessage(payload.toByteArray(Charsets.UTF_8)).apply {
+            this.qos = qos
+            isRetained = retained
+        }
 
     fun disconnect() {
         synchronized(this) {
