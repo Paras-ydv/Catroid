@@ -36,9 +36,9 @@ data class MqttConnectionConfig(
 ) {
     companion object {
         fun fromContext(context: Context) = MqttConnectionConfig(
-            host = SettingsFragment.getMqttHost(context),
+            host = SettingsFragment.getMqttHost(context).trim(),
             port = SettingsFragment.getMqttPort(context),
-            clientId = SettingsFragment.getMqttClientId(context),
+            clientId = SettingsFragment.getMqttClientId(context).trim(),
             username = SettingsFragment.getMqttUsername(context),
             password = SettingsFragment.getMqttPassword(),
             useTls = SettingsFragment.isMqttTlsEnabled(context)

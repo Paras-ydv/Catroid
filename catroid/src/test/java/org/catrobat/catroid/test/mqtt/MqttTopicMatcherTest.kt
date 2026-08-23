@@ -31,8 +31,6 @@ import org.junit.Test
 
 class MqttTopicMatcherTest {
 
-    // --- exact matching ---
-
     @Test
     fun testIdenticalTopicMatches() {
         assertTrue(matches("sport/tennis/player1", "sport/tennis/player1"))
@@ -52,8 +50,6 @@ class MqttTopicMatcherTest {
     fun testLongerTopicDoesNotMatchShorterFilter() {
         assertFalse(matches("sport/tennis", "sport/tennis/player1"))
     }
-
-    // --- single level wildcard ---
 
     @Test
     fun testSingleLevelWildcardMatchesOneLevel() {
@@ -95,8 +91,6 @@ class MqttTopicMatcherTest {
         assertFalse(matches("+", "sport/tennis"))
     }
 
-    // --- multi level wildcard ---
-
     @Test
     fun testMultiLevelWildcardMatchesRemainingLevels() {
         assertTrue(matches("sport/tennis/#", "sport/tennis/player1/ranking"))
@@ -127,8 +121,6 @@ class MqttTopicMatcherTest {
         assertFalse(matches("sport/#/ranking", "sport/tennis/ranking"))
     }
 
-    // --- reserved topics ---
-
     @Test
     fun testMultiLevelWildcardDoesNotMatchReservedTopic() {
         assertFalse(matches("#", "\$SYS/broker/uptime"))
@@ -149,8 +141,6 @@ class MqttTopicMatcherTest {
         assertTrue(matches("sport/+", "sport/\$special"))
     }
 
-    // --- containsWildcard ---
-
     @Test
     fun testContainsWildcardDetectsSingleLevel() {
         assertTrue(containsWildcard("sport/+/player1"))
@@ -166,8 +156,6 @@ class MqttTopicMatcherTest {
         assertFalse(containsWildcard("sport/tennis/player1"))
     }
 
-    // --- degenerate input ---
-
     @Test
     fun testEmptyFilterDoesNotMatchTopic() {
         assertFalse(matches("", "sport"))
@@ -179,7 +167,7 @@ class MqttTopicMatcherTest {
     }
 
     @Test
-    fun testEmptyFilterMatchesEmptyTopic() {
-        assertTrue(matches("", ""))
+    fun testEmptyFilterDoesNotMatchEmptyTopic() {
+        assertFalse(matches("", ""))
     }
 }

@@ -23,14 +23,6 @@
 
 package org.catrobat.catroid.devices.mqtt
 
-/**
- * Matches published topic names against subscription filters following the topic
- * matching rules in the MQTT 3.1.1 specification, section 4.7.
- *
- * `+` matches exactly one topic level. `#` matches the remaining levels including
- * none at all, so `sport/#` also matches `sport` itself. Neither wildcard matches
- * a topic beginning with `$`, which brokers reserve for their own statistics.
- */
 object MqttTopicMatcher {
 
     private const val LEVEL_SEPARATOR = '/'
@@ -38,21 +30,45 @@ object MqttTopicMatcher {
     private const val MULTI_LEVEL = "#"
     private const val RESERVED_PREFIX = '$'
 
+    private const val MAX_TOPIC_BYTES = 65_535
+
     fun containsWildcard(filter: String): Boolean =
         filter.contains(SINGLE_LEVEL) || filter.contains(MULTI_LEVEL)
 
+    // Paho rejects malformed filters with IllegalArgumentException, which is not an
+    // MqttException and would escape the connection error handling.
+    fun isValidFilter(filter: String): Boolean {
+        if (filter.isEmpty() || filter.toByteArray(Charsets.UTF_8).size > MAX_TOPIC_BYTES) {
+            return false
+        }
+        val levels = filter.split(LEVEL_SEPARATOR)
+        levels.forEachIndexed { index, level ->
+            if (level.contains(SINGLE_LEVEL) && level != SINGLE_LEVEL) {
+                return false
+            }
+            if (level.contains(MULTI_LEVEL) && (level != MULTI_LEVEL || index != levels.lastIndex)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fun isValidTopicName(topic: String): Boolean =
+        topic.isNotEmpty() &&
+            topic.toByteArray(Charsets.UTF_8).size <= MAX_TOPIC_BYTES &&
+            !containsWildcard(topic)
+
     @Suppress("ReturnCount")
     fun matches(filter: String, topic: String): Boolean {
-        if (filter == topic) {
-            return true
-        }
         if (filter.isEmpty() || topic.isEmpty()) {
             return false
+        }
+        if (filter == topic) {
+            return true
         }
         val filterLevels = filter.split(LEVEL_SEPARATOR)
         val topicLevels = topic.split(LEVEL_SEPARATOR)
 
-        // A wildcard at the first level must not reach broker-reserved topics.
         if (topic[0] == RESERVED_PREFIX &&
             (filterLevels[0] == SINGLE_LEVEL || filterLevels[0] == MULTI_LEVEL)
         ) {
@@ -61,7 +77,6 @@ object MqttTopicMatcher {
 
         filterLevels.forEachIndexed { index, level ->
             if (level == MULTI_LEVEL) {
-                // Valid only as the final level, where it absorbs whatever remains.
                 return index == filterLevels.lastIndex
             }
             if (index >= topicLevels.size) {
