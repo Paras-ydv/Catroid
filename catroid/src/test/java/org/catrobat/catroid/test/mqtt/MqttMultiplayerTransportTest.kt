@@ -52,6 +52,7 @@ class MqttMultiplayerTransportTest {
         client = RecordingClient()
         manager = MqttManager(
             clientFactory = { _, _ -> client },
+            publishExecutor = { it.run() },
             teardownExecutor = { it.run() }
         )
         transport = MqttMultiplayerTransport(manager)
@@ -64,8 +65,6 @@ class MqttMultiplayerTransportTest {
         client.storedCallback?.messageArrived(topic, MqttMessage(payload.toByteArray()))
         manager.dispatchPendingMessages()
     }
-
-    // --- lifecycle ---
 
     @Test
     fun testStartSubscribesToTheWholeRoom() {
@@ -102,8 +101,6 @@ class MqttMultiplayerTransportTest {
         assertTrue(received.isEmpty())
     }
 
-    // --- sending ---
-
     @Test
     fun testSendPublishesUnderRoomAndSender() {
         start()
@@ -130,8 +127,6 @@ class MqttMultiplayerTransportTest {
         transport.sendVariable(null)
         assertEquals(null, client.lastPublishedTopic)
     }
-
-    // --- receiving ---
 
     @Test
     fun testMessageFromOtherPlayerUpdatesVariable() {
@@ -211,8 +206,6 @@ class MqttMultiplayerTransportTest {
             subscribedTopics.remove(topic)
         }
     }
-
-    // --- room id derivation ---
 
     @Test
     fun testPlainProjectNameIsUsedAsRoom() {

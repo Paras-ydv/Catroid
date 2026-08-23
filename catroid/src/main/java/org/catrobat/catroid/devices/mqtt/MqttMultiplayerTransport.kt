@@ -25,22 +25,10 @@ package org.catrobat.catroid.devices.mqtt
 
 import android.util.Log
 import org.catrobat.catroid.formulaeditor.UserVariable
+import java.net.URLDecoder
+import java.net.URLEncoder
 import org.koin.core.context.KoinContextHandler
 
-/**
- * Carries Catroid's multiplayer variables over MQTT, as an alternative to the
- * existing Bluetooth transport.
- *
- * Bluetooth multiplayer is limited to devices that paired with each other. Over
- * MQTT any number of players on the same network, or on different networks via a
- * shared broker, observe the same variables.
- *
- * Topics are laid out as `catrobat/multiplayer/<room>/<sender>/<variable>`. The
- * sender is part of the topic rather than the payload so a device can recognise
- * and ignore the echo of its own publish without parsing anything: every client
- * subscribes to the whole room, and would otherwise immediately overwrite the
- * variable it just set.
- */
 class MqttMultiplayerTransport(private val mqttManager: MqttManager) {
 
     private var config: MqttConnectionConfig? = null
@@ -50,10 +38,6 @@ class MqttMultiplayerTransport(private val mqttManager: MqttManager) {
 
     val isStarted: Boolean get() = listener != null
 
-    /**
-     * @param onVariableReceived applies an incoming value. Supplied by the caller so
-     * this class stays independent of ProjectManager and remains unit testable.
-     */
     fun start(
         config: MqttConnectionConfig,
         roomId: String,
@@ -65,14 +49,15 @@ class MqttMultiplayerTransport(private val mqttManager: MqttManager) {
             return false
         }
         stop()
+        val safeSender = sanitiseSegment(senderId)
         this.config = config
-        this.roomId = roomId
-        this.senderId = senderId
+        this.roomId = sanitiseSegment(roomId)
+        this.senderId = safeSender
 
-        val filter = roomFilter(roomId)
+        val filter = roomFilter(this.roomId!!)
         val roomListener = MqttListener { topic, payload ->
             val message = parse(topic) ?: return@MqttListener
-            if (message.sender == senderId) {
+            if (message.sender == safeSender) {
                 return@MqttListener
             }
             onVariableReceived(message.variable, payload)
@@ -106,7 +91,7 @@ class MqttMultiplayerTransport(private val mqttManager: MqttManager) {
         }
         mqttManager.publish(
             currentConfig,
-            "$TOPIC_ROOT/$currentRoom/$currentSender/$name",
+            "$TOPIC_ROOT/$currentRoom/$currentSender/${encodeSegment(name)}",
             variable.value?.toString().orEmpty()
         )
     }
@@ -119,18 +104,12 @@ class MqttMultiplayerTransport(private val mqttManager: MqttManager) {
             Log.d(TAG, "Ignoring multiplayer topic with unexpected shape: '$topic'")
             return null
         }
-        return RoomMessage(segments[SENDER_INDEX], segments[VARIABLE_INDEX])
+        return RoomMessage(segments[SENDER_INDEX], decodeSegment(segments[VARIABLE_INDEX]))
     }
 
     companion object {
         private val TAG = MqttMultiplayerTransport::class.java.simpleName
 
-        /**
-         * Resolves the transport only when a Koin context exists, returning null
-         * otherwise. Script actions run in plain JVM unit tests where no dependency
-         * graph is started, and requiring one there would make an unrelated test fail
-         * simply because a variable was assigned.
-         */
         @JvmStatic
         fun activeOrNull(): MqttMultiplayerTransport? =
             KoinContextHandler.getOrNull()?.getOrNull(MqttMultiplayerTransport::class)
@@ -142,16 +121,22 @@ class MqttMultiplayerTransport(private val mqttManager: MqttManager) {
 
         fun roomFilter(roomId: String) = "$TOPIC_ROOT/$roomId/#"
 
-        /**
-         * Derives a room id from a project name.
-         *
-         * Project names are free text and are only sanitised for use as directory
-         * names, which leaves the MQTT wildcards + and # untouched. Either of them
-         * inside a topic filter makes it invalid and the broker rejects the
-         * subscription, and a slash would add topic levels and break the segment
-         * layout the sender is read from. All three are replaced so any project
-         * name yields a usable room.
-         */
+        private fun sanitiseSegment(value: String): String =
+            value.trim().replace(Regex("[/+#]"), "_").ifEmpty { DEFAULT_ROOM }
+
+        // Percent-encoded rather than stripped, because the receiver looks the
+        // variable up by name. URLEncoder writes a space as '+', itself a wildcard.
+        private fun encodeSegment(value: String): String =
+            URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
+
+        private fun decodeSegment(value: String): String =
+            try {
+                URLDecoder.decode(value, Charsets.UTF_8.name())
+            } catch (e: IllegalArgumentException) {
+                Log.d(TAG, "Undecodable variable segment '$value', using it as sent", e)
+                value
+            }
+
         @JvmStatic
         fun roomIdFor(projectName: String): String =
             projectName.trim()
