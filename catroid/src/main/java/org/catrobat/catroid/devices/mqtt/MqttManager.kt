@@ -192,6 +192,11 @@ class MqttManager(
             Log.e(TAG, "Cannot connect: host is blank")
             return false
         }
+        closeStaleClientIfNeeded()
+        return tryConnect(config)
+    }
+
+    private fun closeStaleClientIfNeeded() {
         val currentClient = mqttClient
         if (currentClient != null && !currentClient.isConnected) {
             try {
@@ -202,9 +207,13 @@ class MqttManager(
             mqttClient = null
             subscriptions.clear()
         }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun tryConnect(config: MqttConnectionConfig): Boolean {
+        val brokerUrl = buildServerUri(config.host, config.port, config.useTls)
+        val resolvedClientId = config.clientId.ifBlank { MqttClient.generateClientId() }
         return try {
-            val brokerUrl = buildServerUri(config.host, config.port, config.useTls)
-            val resolvedClientId = config.clientId.ifBlank { MqttClient.generateClientId() }
             val client = clientFactory.create(brokerUrl, resolvedClientId).also { mqttClient = it }
             client.setCallback(callback)
             client.connect(buildConnectOptions(config.username, config.password))

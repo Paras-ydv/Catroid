@@ -204,17 +204,19 @@ class ScriptController {
     private fun getUserVariables(sprite: Sprite, brick: Brick): List<UserVariable> {
         val userVariableList = ArrayList<UserVariable>()
 
-        if (brick is FormulaBrick && formulaBrickContainsUserData(brick, USER_VARIABLE)) {
-            val userVariableNameList = getUserDataNamesForBrick(brick, USER_VARIABLE)
-            userVariableList.addAll(getUserDataFromNames(userVariableNameList, projectManager.currentProject.userVariables))
-            userVariableList.addAll(getUserDataFromNames(userVariableNameList, projectManager.currentProject.multiplayerVariables))
-            userVariableList.addAll(getUserDataFromNames(userVariableNameList, sprite.userVariables))
-        } else if (brick is WhenMqttMessageReceivedBrick) {
-            userVariableList.addAll(getUserDataFromNames(brick.boundVariableNames, projectManager.currentProject.userVariables))
-            userVariableList.addAll(getUserDataFromNames(brick.boundVariableNames, projectManager.currentProject.multiplayerVariables))
-            userVariableList.addAll(getUserDataFromNames(brick.boundVariableNames, sprite.userVariables))
-        } else if (brick is UserVariableBrickInterface) {
-            userVariableList.add(brick.userVariable)
+        when {
+            brick is FormulaBrick && formulaBrickContainsUserData(brick, USER_VARIABLE) -> {
+                val userVariableNameList = getUserDataNamesForBrick(brick, USER_VARIABLE)
+                userVariableList.addAll(getUserDataFromNames(userVariableNameList, projectManager.currentProject.userVariables))
+                userVariableList.addAll(getUserDataFromNames(userVariableNameList, projectManager.currentProject.multiplayerVariables))
+                userVariableList.addAll(getUserDataFromNames(userVariableNameList, sprite.userVariables))
+            }
+            brick is WhenMqttMessageReceivedBrick -> {
+                userVariableList.addAll(getUserDataFromNames(brick.boundVariableNames, projectManager.currentProject.userVariables))
+                userVariableList.addAll(getUserDataFromNames(brick.boundVariableNames, projectManager.currentProject.multiplayerVariables))
+                userVariableList.addAll(getUserDataFromNames(brick.boundVariableNames, sprite.userVariables))
+            }
+            brick is UserVariableBrickInterface -> userVariableList.add(brick.userVariable)
         }
 
         return userVariableList

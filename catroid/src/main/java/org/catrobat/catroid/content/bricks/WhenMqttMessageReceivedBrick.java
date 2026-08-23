@@ -154,6 +154,7 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 
 	@Override
 	public void onEditOptionSelected(Integer spinnerId) {
+		// The spinner offers no edit option, so this is never called.
 	}
 
 	@Override
@@ -167,10 +168,12 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 		topicField.addTextChangedListener(new TextWatcher() {
 			@Override
 			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+				// No action needed before text changes.
 			}
 
 			@Override
 			public void onTextChanged(CharSequence s, int start, int before, int count) {
+				// No action needed during text changes; topic is updated in afterTextChanged.
 			}
 
 			@Override
@@ -193,5 +196,6 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 
 	@Override
 	public void addActionToSequence(Sprite sprite, ScriptSequenceAction sequence) {
+		// A script brick starts its script; it contributes no action of its own.
 	}
 }
