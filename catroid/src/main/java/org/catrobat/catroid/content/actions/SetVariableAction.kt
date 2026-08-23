@@ -74,8 +74,6 @@ class SetVariableAction : TemporalAction() {
     private fun handleMultiplayerVariable() {
         ProjectManager.getInstance().currentProject.getMultiplayerVariable(userVariable?.name) ?: return
         multiplayerDevice?.sendChangedMultiplayerVariables(userVariable)
-        // The MQTT transport runs alongside Bluetooth rather than replacing it, and
-        // stays inert until a stage starts it, so existing projects are unaffected.
         MqttMultiplayerTransport.activeOrNull()?.sendVariable(userVariable)
     }
     private fun checkValueForDoubleConversion(value: Any?): Boolean =

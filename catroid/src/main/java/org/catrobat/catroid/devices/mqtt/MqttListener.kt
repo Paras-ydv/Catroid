@@ -23,12 +23,6 @@
 
 package org.catrobat.catroid.devices.mqtt
 
-/**
- * Receives messages that arrived on a subscribed MQTT topic.
- *
- * Implementations are called on the Paho network thread and must not block.
- * Anything that touches Catroid state belongs on the render thread instead.
- */
 fun interface MqttListener {
     fun onMessageReceived(topic: String, payload: String)
 }

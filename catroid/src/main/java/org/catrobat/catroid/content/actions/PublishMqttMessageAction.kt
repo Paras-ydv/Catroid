@@ -33,13 +33,6 @@ import org.catrobat.catroid.formulaeditor.Formula
 import org.catrobat.catroid.formulaeditor.InterpretationException
 import org.koin.java.KoinJavaComponent.inject
 
-/**
- * Publishes one message when the brick is reached.
- *
- * Extends TemporalAction with the default zero duration so the publish happens
- * once and the script continues in the same frame, matching how the other
- * fire-and-forget device bricks behave rather than blocking on the broker.
- */
 class PublishMqttMessageAction : TemporalAction() {
 
     var scope: Scope? = null
@@ -50,6 +43,8 @@ class PublishMqttMessageAction : TemporalAction() {
 
     private val mqttManager: MqttManager by inject(MqttManager::class.java)
 
+    // Zero duration: the publish happens once and the script continues in the same
+    // frame, like the other fire-and-forget device bricks.
     override fun begin() {
         val currentScope = scope ?: run {
             Log.e(TAG, "Cannot publish: action has no scope")
@@ -67,10 +62,6 @@ class PublishMqttMessageAction : TemporalAction() {
 
     override fun update(percent: Float) = Unit
 
-    /**
-     * A formula that cannot be evaluated yields an empty value rather than
-     * aborting the script, consistent with the other formula-driven bricks.
-     */
     private fun interpret(formula: Formula?, scope: Scope): String =
         try {
             formula?.interpretString(scope).orEmpty()

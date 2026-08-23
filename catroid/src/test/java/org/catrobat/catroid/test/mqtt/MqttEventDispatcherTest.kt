@@ -39,8 +39,6 @@ class MqttEventDispatcherTest {
     private fun dispatcherFor(filter: String) =
         MqttEventDispatcher(filter) { eventId, message -> firedEvents.add(eventId to message) }
 
-    // --- event generation ---
-
     @Test
     fun testMessageFiresEvent() {
         dispatcherFor("home/temp").onMessageReceived("home/temp", "22.5")
@@ -73,8 +71,6 @@ class MqttEventDispatcherTest {
         assertEquals("", firedEvents.single().second.payload)
     }
 
-    // --- last message ---
-
     @Test
     fun testLastMessageIsNullBeforeAnyMessage() {
         assertNull(dispatcherFor("home/temp").lastMessage)
@@ -87,8 +83,6 @@ class MqttEventDispatcherTest {
         dispatcher.onMessageReceived("home/b", "second")
         assertEquals(ReceivedMqttMessage("home/b", "second"), dispatcher.lastMessage)
     }
-
-    // --- event identity ---
 
     @Test
     fun testEventIdsForSameFilterAreEqual() {

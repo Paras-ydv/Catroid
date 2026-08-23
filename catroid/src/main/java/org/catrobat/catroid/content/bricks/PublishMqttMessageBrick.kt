@@ -36,10 +36,6 @@ import org.catrobat.catroid.content.bricks.Brick.BrickField
 import org.catrobat.catroid.content.bricks.Brick.ResourcesSet
 import org.catrobat.catroid.formulaeditor.Formula
 
-/**
- * Publishes a message to an MQTT topic. Both inputs are formulas, so a script can
- * publish a computed value to a topic built from variables.
- */
 class PublishMqttMessageBrick() : FormulaBrick() {
 
     private var qos = 0

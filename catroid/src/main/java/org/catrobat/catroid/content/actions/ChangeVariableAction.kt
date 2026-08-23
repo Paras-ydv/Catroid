@@ -56,9 +56,6 @@ class ChangeVariableAction : Action() {
         multiplayerVariable?.let {
             val multiplayerDevice = getMultiplayerDevice()
             multiplayerDevice?.sendChangedMultiplayerVariables(userVariable)
-            // The MQTT transport runs alongside Bluetooth rather than replacing it,
-            // and stays inert until a stage starts it, so existing projects are
-            // unaffected.
             MqttMultiplayerTransport.activeOrNull()?.sendVariable(userVariable)
         }
     }

@@ -34,13 +34,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-/**
- * The encrypted password store is a Koin singleton resolved when a stage starts.
- * If opening it throws, Koin cannot build the graph and StageActivity dies on
- * launch, so the user cannot run any project at all. That happens whenever the
- * preferences file outlives the keystore key that encrypted it, which keystore
- * entries are known to do after some system updates and on some devices.
- */
 @RunWith(AndroidJUnit4::class)
 class MqttPasswordRepositoryRecoveryTest {
 
@@ -63,11 +56,12 @@ class MqttPasswordRepositoryRecoveryTest {
     }
 
     @Test
+    // A store the keystore key can no longer decrypt must not take StageActivity
+    // down with it.
     fun testUndecryptablePreferencesDoNotThrow() {
         createMqttPasswordRepository(context).setPassword("secret")
         context.deleteSharedPreferences(MQTT_ENCRYPTED_PREFS)
 
-        // a file this device's keystore cannot decrypt, as after a restore
         prefsFile().parentFile?.mkdirs()
         prefsFile().writeText(
             """<?xml version='1.0' encoding='utf-8' standalone='yes' ?>

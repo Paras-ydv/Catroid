@@ -25,16 +25,6 @@ package org.catrobat.catroid.content.eventids;
 
 import com.google.common.base.Objects;
 
-/**
- * Identifies the scripts waiting on one MQTT subscription filter.
- *
- * The filter is compared verbatim rather than by MQTT topic matching rules. A
- * script registers its filter with MqttManager, which is what decides whether an
- * incoming topic matches, and the resulting event carries that same filter back.
- * Keeping equality exact lets Catroid resolve the waiting scripts with a single
- * hash lookup, and keeps wildcard semantics in one place instead of splitting
- * them between the router and the event system.
- */
 public class MqttEventId extends EventId {
 	private final String topicFilter;
 

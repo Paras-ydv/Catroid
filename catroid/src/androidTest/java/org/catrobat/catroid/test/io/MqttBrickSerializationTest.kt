@@ -45,11 +45,6 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * A project containing MQTT bricks has to survive being written to code.xml and
- * read back. XStream needs an alias for every brick and script class, and a
- * missing one fails only at save or load time, never at compile time.
- */
 @RunWith(AndroidJUnit4::class)
 class MqttBrickSerializationTest {
 
@@ -107,8 +102,6 @@ class MqttBrickSerializationTest {
             .filterIsInstance<PublishMqttMessageBrick>()
             .firstOrNull()
         assertNotNull("PublishMqttMessageBrick was not restored from code.xml", brick)
-        // Compare the stored value, not getTrimmedFormulaString, which returns the
-        // formula editor's display form and wraps string literals in quotes.
         assertEquals(
             MESSAGE,
             brick!!.getFormulaWithBrickField(Brick.BrickField.MQTT_MESSAGE).root.value

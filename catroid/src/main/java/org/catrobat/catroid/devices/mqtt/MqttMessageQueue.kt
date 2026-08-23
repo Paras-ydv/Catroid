@@ -28,16 +28,6 @@ import java.util.concurrent.LinkedBlockingQueue
 
 data class ReceivedMqttMessage(val topic: String, val payload: String)
 
-/**
- * Bounded FIFO buffer between the Paho network thread, which enqueues incoming
- * messages, and Catroid's execution thread, which drains them.
- *
- * Without this hand-off, script triggering would run on whichever thread the
- * broker happened to deliver on. The queue is bounded because a broker can
- * publish faster than the stage consumes; once full, the oldest message is
- * dropped so that recent state still gets through rather than the buffer
- * growing without limit.
- */
 class MqttMessageQueue(private val capacity: Int = DEFAULT_CAPACITY) {
 
     private val queue = LinkedBlockingQueue<ReceivedMqttMessage>(capacity)
@@ -54,10 +44,8 @@ class MqttMessageQueue(private val capacity: Int = DEFAULT_CAPACITY) {
         }
     }
 
-    /** Returns the oldest buffered message, or null when nothing is pending. */
     fun dequeue(): ReceivedMqttMessage? = queue.poll()
 
-    /** Removes and returns everything currently buffered, oldest first. */
     fun drain(): List<ReceivedMqttMessage> {
         val drained = mutableListOf<ReceivedMqttMessage>()
         queue.drainTo(drained)

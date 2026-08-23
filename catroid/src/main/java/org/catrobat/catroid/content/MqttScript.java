@@ -30,13 +30,6 @@ import org.catrobat.catroid.content.eventids.EventId;
 import org.catrobat.catroid.content.eventids.MqttEventId;
 import org.catrobat.catroid.formulaeditor.UserVariable;
 
-/**
- * Runs its bricks whenever a message arrives on the subscribed MQTT topic.
- *
- * The topic is a plain string rather than a formula: it has to be known before
- * the stage starts so the subscription can be registered during resource
- * initialisation, which is before any formula could be evaluated.
- */
 public class MqttScript extends Script {
 
 	private static final long serialVersionUID = 1L;

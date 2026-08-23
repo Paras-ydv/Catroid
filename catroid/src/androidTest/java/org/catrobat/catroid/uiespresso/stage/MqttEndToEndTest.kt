@@ -53,15 +53,6 @@ import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/**
- * Exercises the whole MQTT stack against a real broker: settings, connection,
- * subscription, routing, variable binding, and both bricks.
- *
- * Requires an MQTT broker reachable from the device. On an emulator, 10.0.2.2 is
- * the host machine, so `mosquitto -p 1883` on the developer machine is enough.
- * The test is skipped rather than failed when no broker answers, so it does not
- * break CI machines that have none.
- */
 @RunWith(AndroidJUnit4::class)
 class MqttEndToEndTest {
 
@@ -82,9 +73,6 @@ class MqttEndToEndTest {
         assumeBrokerReachable()
         writeMqttSettings()
         createProject()
-        // The publish brick sits in a start script and fires as soon as the stage
-        // runs. MQTT does not replay messages published before a subscription
-        // existed, so the observer has to be listening before the stage launches.
         subscribeToOutgoingTopic()
         baseActivityTestRule.launchActivity(null)
     }
@@ -104,7 +92,6 @@ class MqttEndToEndTest {
                 probe.takeIf { it.isConnected }?.disconnect()
                 probe.close()
             } catch (ignored: Exception) {
-                // Probes are test scaffolding; a failure closing one must not mask results.
             }
         }
         probes.clear()

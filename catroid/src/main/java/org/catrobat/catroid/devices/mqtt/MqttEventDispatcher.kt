@@ -26,28 +26,11 @@ package org.catrobat.catroid.devices.mqtt
 import android.util.Log
 import org.catrobat.catroid.content.eventids.MqttEventId
 
-/**
- * Turns messages routed by [MqttManager] into Catroid events for one subscription
- * filter.
- *
- * The dispatcher is deliberately unaware of how an event reaches the sprites: it
- * builds the [MqttEventId] and hands it to [onEvent], which the stage supplies.
- * That keeps the conversion testable without a running libGDX stage, and keeps
- * the graphics layer out of the device package.
- *
- * Because MqttManager drains its queue on the render thread, [onMessageReceived]
- * is already called there and may touch Catroid state directly.
- */
 class MqttEventDispatcher(
     val topicFilter: String,
     private val onEvent: (MqttEventId, ReceivedMqttMessage) -> Unit
 ) : MqttListener {
 
-    /**
-     * The most recent message this filter matched. Scripts read the topic and
-     * payload from here, so the concrete topic survives wildcard subscriptions
-     * where the filter alone would not say which device sent the message.
-     */
     @Volatile
     var lastMessage: ReceivedMqttMessage? = null
         private set
