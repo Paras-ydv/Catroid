@@ -46,13 +46,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * Inflates both MQTT bricks the way the script editor does.
- *
- * Nothing else exercises getView: the other tests build projects in code, so a
- * brick whose layout ids did not match, or whose spinner setup threw, would pass
- * every other test and only fail when a user opened the script editor.
- */
 @RunWith(AndroidJUnit4::class)
 class MqttBrickViewTest {
 
@@ -131,12 +124,6 @@ class MqttBrickViewTest {
         private const val PROJECT_NAME = "MqttBrickViewTest"
     }
 
-    /**
-     * Both variable bindings are optional. BrickSpinner reports a selection even when
-     * nothing is bound, falling back to the first variable in the list, so simply
-     * opening the script editor used to bind a variable the user never chose. The
-     * receive path then overwrote that variable with every incoming topic.
-     */
     @Test
     fun testRenderingDoesNotBindVariablesTheUserDidNotChoose() {
         val script = MqttScript("catrobat/home/+/state")

@@ -1285,6 +1285,7 @@
     <string formatted="false" name="brick_when_mqtt_default_topic">catrobat/home/light1/state</string>
     <string formatted="false" name="brick_when_mqtt_store_payload_in">store message in</string>
     <string formatted="false" name="brick_when_mqtt_store_topic_in">store topic in</string>
+    <string formatted="false" name="brick_when_mqtt_variable_unset">not set</string>
     <string formatted="false" name="brick_web_request">Send web request to</string>
     <string formatted="false" name="brick_web_request_default_value">https://catrob.at/joke</string>
     <string formatted="false" name="brick_web_request_result">and store answer in</string>
@@ -1557,6 +1558,7 @@ needs read and write access to it. You can always change permissions through you
     <string formatted="false" name="preference_title_mqtt_password">Password</string>
     <string formatted="false" name="preference_title_mqtt_client_id">Client ID</string>
     <string formatted="false" name="preference_mqtt_port_invalid">Port must be a number between 1 and 65535</string>
+    <string formatted="false" name="preference_mqtt_host_invalid">Enter the broker address only, without a scheme or a path</string>
     <string name="default_mqtt_host" translatable="false">192.168.0.1</string>
     <!--  -->
 

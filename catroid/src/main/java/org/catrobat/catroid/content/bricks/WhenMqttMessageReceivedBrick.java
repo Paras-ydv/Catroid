@@ -38,6 +38,7 @@ import org.catrobat.catroid.content.Sprite;
 import org.catrobat.catroid.content.actions.ScriptSequenceAction;
 import org.catrobat.catroid.content.bricks.brickspinner.BrickSpinner;
 import org.catrobat.catroid.content.bricks.brickspinner.NewOption;
+import org.catrobat.catroid.content.bricks.brickspinner.StringOption;
 import org.catrobat.catroid.content.bricks.brickspinner.UserVariableBrickTextInputDialogBuilder;
 import org.catrobat.catroid.formulaeditor.UserVariable;
 import org.catrobat.catroid.ui.UiUtils;
@@ -48,11 +49,6 @@ import java.util.List;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-/**
- * Starts its script when a message arrives on the given MQTT topic. The topic
- * accepts the MQTT wildcards + and #, so one script can react to a whole branch
- * of a topic tree.
- */
 public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 		implements BrickSpinner.OnItemSelectedListener<UserVariable> {
 
@@ -62,17 +58,6 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 
 	private transient BrickSpinner<UserVariable> payloadSpinner;
 	private transient BrickSpinner<UserVariable> topicSpinner;
-
-	/**
-	 * True while the spinners are being restored from the script.
-	 *
-	 * BrickSpinner.setSelection() reports a selection even when the script has no
-	 * variable bound, because it falls back to the first entry in the list. Both of
-	 * these bindings are optional, so writing that fallback back into the script
-	 * would bind a variable the user never chose, and the receive path would then
-	 * overwrite it with every incoming topic.
-	 */
-	private transient boolean restoringSpinners;
 
 	public WhenMqttMessageReceivedBrick() {
 		this(new MqttScript());
@@ -99,6 +84,17 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 		return R.layout.brick_when_mqtt_message_received;
 	}
 
+	public List<String> getBoundVariableNames() {
+		List<String> names = new ArrayList<>();
+		if (script.getPayloadVariable() != null) {
+			names.add(script.getPayloadVariable().getName());
+		}
+		if (script.getTopicVariable() != null) {
+			names.add(script.getTopicVariable().getName());
+		}
+		return names;
+	}
+
 	@Override
 	public View getView(Context context) {
 		super.getView(context);
@@ -107,21 +103,17 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 		return view;
 	}
 
-	/**
-	 * Offers the project's variables for the payload and the concrete topic. Both
-	 * are optional: a script that only needs to react to the event can leave them
-	 * unset, and nothing is written in that case.
-	 */
 	private void setupVariableSpinners(Context context) {
 		Sprite sprite = ProjectManager.getInstance().getCurrentSprite();
 
 		List<Nameable> items = new ArrayList<>();
 		items.add(new NewOption(context.getString(R.string.new_option)));
+		// Sits directly after "New…" so it is what the spinner falls back to when the
+		// bound variable is missing, instead of silently binding the first real one.
+		items.add(new StringOption(context.getString(R.string.brick_when_mqtt_variable_unset)));
 		items.addAll(sprite.getUserVariables());
 		items.addAll(ProjectManager.getInstance().getCurrentProject().getUserVariables());
 		items.addAll(ProjectManager.getInstance().getCurrentProject().getMultiplayerVariables());
-
-		restoringSpinners = true;
 
 		payloadSpinner = new BrickSpinner<>(R.id.brick_when_mqtt_payload_spinner, view,
 				new ArrayList<>(items));
@@ -132,15 +124,10 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 				new ArrayList<>(items));
 		topicSpinner.setOnItemSelectedListener(this);
 		topicSpinner.setSelection(script.getTopicVariable());
-
-		restoringSpinners = false;
 	}
 
 	@Override
 	public void onItemSelected(Integer spinnerId, @Nullable UserVariable item) {
-		if (restoringSpinners) {
-			return;
-		}
 		if (spinnerId == R.id.brick_when_mqtt_payload_spinner) {
 			script.setPayloadVariable(item);
 		} else if (spinnerId == R.id.brick_when_mqtt_topic_spinner) {
@@ -171,6 +158,7 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 
 	@Override
 	public void onStringOptionSelected(Integer spinnerId, String string) {
+		onItemSelected(spinnerId, null);
 	}
 
 	private void setupTopicField() {
@@ -195,35 +183,6 @@ public class WhenMqttMessageReceivedBrick extends ScriptBrickBaseType
 	@Override
 	public Script getScript() {
 		return script;
-	}
-
-	@Override
-	public int getPositionInScript() {
-		return -1;
-	}
-
-	@Override
-	public void addToFlatList(List<Brick> bricks) {
-		super.addToFlatList(bricks);
-		for (Brick brick : getScript().getBrickList()) {
-			brick.addToFlatList(bricks);
-		}
-	}
-
-	@Override
-	public List<Brick> getDragAndDropTargetList() {
-		return getScript().getBrickList();
-	}
-
-	@Override
-	public int getPositionInDragAndDropTargetList() {
-		return -1;
-	}
-
-	@Override
-	public void setCommentedOut(boolean commentedOut) {
-		super.setCommentedOut(commentedOut);
-		getScript().setCommentedOut(commentedOut);
 	}
 
 	@Override
