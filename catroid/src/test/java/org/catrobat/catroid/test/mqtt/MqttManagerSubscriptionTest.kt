@@ -30,9 +30,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/**
- * Covers subscription management and recovery across reconnects.
- */
 class MqttManagerSubscriptionTest {
 
     private lateinit var fakeClient: FakeMqttClient
@@ -43,15 +40,12 @@ class MqttManagerSubscriptionTest {
     fun setUp() {
         fakeClient = FakeMqttClient()
         fakeFactory = FakeMqttClientFactory(fakeClient)
-        // same-thread teardown so disconnect stays observable without sleeping
-        manager = MqttManager(fakeFactory) { it.run() }
+        manager = MqttManager(fakeFactory, { it.run() }) { it.run() }
     }
 
     private val defaultConfig = TEST_CONFIG
 
     private fun connected(): MqttManager = manager.also { it.connect(defaultConfig) }
-
-    // --- subscribe() ---
 
     @Test
     fun testSubscribeReturnsTrueOnSuccess() {
@@ -126,8 +120,6 @@ class MqttManagerSubscriptionTest {
         assertTrue(manager.activeSubscriptions.isEmpty())
     }
 
-    // --- unsubscribe() ---
-
     @Test
     fun testUnsubscribeReturnsTrueOnSuccess() {
         connected().subscribe(defaultConfig, "home/light")
@@ -163,16 +155,12 @@ class MqttManagerSubscriptionTest {
         assertEquals(setOf("home/light"), manager.activeSubscriptions)
     }
 
-    // --- subscription lifecycle ---
-
     @Test
     fun testDisconnectClearsSubscriptions() {
         connected().subscribe(defaultConfig, "home/light")
         manager.disconnect()
         assertTrue(manager.activeSubscriptions.isEmpty())
     }
-
-    // --- reconnect and subscription recovery ---
 
     @Test
     fun testSubscriptionIsRestoredAfterReconnect() {
@@ -228,8 +216,6 @@ class MqttManagerSubscriptionTest {
         manager.connect(defaultConfig)
         assertTrue(manager.activeSubscriptions.isEmpty())
     }
-
-    // --- reconnect backoff ---
 
     @Test
     fun testBackoffStartsAtOneSecond() {
@@ -298,13 +284,7 @@ class MqttManagerSubscriptionTest {
 
         assertEquals(listOf("home/light"), fakeClient.subscribedTopics)
     }
-    // --- retrying must stop when the stage ends ---
 
-    /**
-     * A reconnect task queued before disconnect() fires afterwards. It used to call
-     * connect(), which re-enabled retrying, so the app kept reconnecting in the
-     * background long after the user left the stage.
-     */
     @Test
     fun testReconnectAfterDisconnectIsRefused() {
         connected()
@@ -320,7 +300,6 @@ class MqttManagerSubscriptionTest {
         connected()
         manager.disconnect()
         manager.reconnectNow()
-        // still refused on a second firing, i.e. the loop did not re-arm itself
         assertFalse(manager.reconnectNow())
     }
 
@@ -333,5 +312,28 @@ class MqttManagerSubscriptionTest {
         assertTrue(manager.connect(defaultConfig))
         fakeClient.connected = false
         assertTrue(manager.reconnectNow())
+    }
+    @Test
+    fun testSubscribeRejectsFiltersTheBrokerWouldRefuse() {
+        connected()
+        assertFalse(manager.subscribe(defaultConfig, "a/#/b"))
+        assertFalse(manager.subscribe(defaultConfig, "temp+"))
+        assertFalse(manager.subscribe(defaultConfig, "a#b"))
+        assertEquals(0, manager.activeSubscriptions.size)
+    }
+
+    @Test
+    fun testSubscribeStillAcceptsValidWildcardFilters() {
+        connected()
+        assertTrue(manager.subscribe(defaultConfig, "home/#"))
+        assertTrue(manager.subscribe(defaultConfig, "home/+/state"))
+    }
+
+    @Test
+    fun testResubscribingWithHigherQosUpgradesTheSubscription() {
+        connected()
+        manager.subscribe(defaultConfig, "home/temp", 0)
+        manager.subscribe(defaultConfig, "home/temp", 2)
+        assertEquals(2, fakeClient.lastSubscribeQos)
     }
 }

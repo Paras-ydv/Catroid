@@ -32,14 +32,6 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 
-/**
- * Hand written test doubles shared by the MqttManager test classes.
- *
- * These are deliberately not mocks: the manager's behaviour depends on the client
- * reporting connection state that changes as a result of earlier calls, which is
- * clearer to express as a small fake than as a chain of stubbing.
- */
-
 internal val TEST_CONFIG = MqttConnectionConfig("localhost", 1883, "client-1", "", "", false)
 
 internal class FakeMqttClient : MqttClientInterface {
@@ -59,7 +51,6 @@ internal class FakeMqttClient : MqttClientInterface {
     var lastSubscribeQos = -1
     var unsubscribeCalled = false
     var throwOnUnsubscribe = false
-    /** Lets a test simulate Paho blocking while the broker is unreachable. */
     var onDisconnect: (() -> Unit)? = null
     val subscribedTopics = mutableListOf<String>()
     private var storedCallback: MqttCallback? = null
@@ -73,6 +64,7 @@ internal class FakeMqttClient : MqttClientInterface {
     }
 
     override fun publish(topic: String, message: MqttMessage) {
+        requireValidTopicName(topic)
         if (throwOnPublish) throw MqttException(0)
         publishCalled = true
         lastPublishTopic = topic
@@ -81,6 +73,7 @@ internal class FakeMqttClient : MqttClientInterface {
     }
 
     override fun subscribe(topic: String, qos: Int) {
+        requireValidFilter(topic)
         if (throwOnSubscribe) throw MqttException(0)
         subscribeCalled = true
         subscribedTopics.add(topic)
@@ -88,6 +81,7 @@ internal class FakeMqttClient : MqttClientInterface {
     }
 
     override fun unsubscribe(topic: String) {
+        requireValidFilter(topic)
         if (throwOnUnsubscribe) throw MqttException(0)
         unsubscribeCalled = true
         subscribedTopics.remove(topic)
@@ -108,7 +102,6 @@ internal class FakeMqttClient : MqttClientInterface {
         storedCallback = callback
     }
 
-    /** Simulates the broker delivering a message on the Paho network thread. */
     fun deliver(topic: String, payload: String) =
         deliverBytes(topic, payload.toByteArray(Charsets.UTF_8))
 
@@ -120,12 +113,34 @@ internal class FakeMqttClient : MqttClientInterface {
         connected = false
         storedCallback?.connectionLost(cause)
     }
+
+    // Paho rejects malformed topics with IllegalArgumentException before it checks
+    // whether it is connected; a fake that accepts anything hides that crash.
+    private fun requireValidFilter(filter: String) {
+        val levels = filter.split('/')
+        val valid = filter.isNotEmpty() && levels.withIndex().all { (index, level) ->
+            (!level.contains('+') || level == "+") &&
+                (!level.contains('#') || (level == "#" && index == levels.lastIndex))
+        }
+        require(valid) { "Invalid usage of wildcard in topic string: $filter" }
+    }
+
+    private fun requireValidTopicName(topic: String) {
+        require(topic.isNotEmpty() && !topic.contains('+') && !topic.contains('#')) {
+            "Invalid usage of wildcard in topic string: $topic"
+        }
+    }
 }
 
 internal class FakeMqttClientFactory(private val client: FakeMqttClient) : MqttClientFactory {
     var createCalled = false
+    var lastBrokerUrl: String? = null
+    var lastClientId: String? = null
+
     override fun create(brokerUrl: String, clientId: String): FakeMqttClient {
         createCalled = true
+        lastBrokerUrl = brokerUrl
+        lastClientId = clientId
         return client
     }
 }

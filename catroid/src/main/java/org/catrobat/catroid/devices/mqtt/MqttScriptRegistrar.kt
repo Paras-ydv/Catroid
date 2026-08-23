@@ -28,29 +28,13 @@ import org.catrobat.catroid.content.EventWrapper
 import org.catrobat.catroid.content.MqttScript
 import org.catrobat.catroid.content.Project
 
-/**
- * Subscribes every MQTT script in a project when a stage starts.
- *
- * Subscribing happens once at stage start rather than when a script first runs,
- * because a receive script has to be listening before the first message arrives,
- * and MQTT delivers nothing that was published before the subscription existed.
- *
- * Scripts sharing a topic share one broker subscription: MqttManager treats the
- * second subscribe as a duplicate, while both listeners are registered and both
- * scripts are triggered.
- */
 class MqttScriptRegistrar(
     private val mqttManager: MqttManager,
     private val config: MqttConnectionConfig
 ) {
 
-    /**
-     * Registers and subscribes every MQTT script in [project].
-     *
-     * Teardown is not this class's job: MqttManager.disconnect() drops all
-     * listeners when the stage ends, which also covers a run that failed to
-     * connect and never got here.
-     */
+    // Subscribes before the stage starts: MQTT delivers nothing published before the
+    // subscription existed.
     fun registerScriptsOf(project: Project) {
         var registeredCount = 0
         project.mqttScripts().forEach { script ->
@@ -60,8 +44,6 @@ class MqttScriptRegistrar(
                 return@forEach
             }
             val dispatcher = MqttEventDispatcher(topic) { eventId, message ->
-                // Variables are written before the event fires so the script sees the
-                // values of the message that triggered it, not of a later arrival.
                 bindMessageToVariables(script, message)
                 project.fireToAllSprites(EventWrapper(eventId, false))
             }
@@ -77,16 +59,6 @@ class MqttScriptRegistrar(
     companion object {
         private val TAG = MqttScriptRegistrar::class.java.simpleName
 
-        /**
-         * Writes the incoming payload and the concrete topic into the variables the
-         * script selected. Both are optional, and the topic is worth having even
-         * though the script names one: under a wildcard subscription the filter does
-         * not say which device the message came from.
-         *
-         * Payloads stay strings. Catroid compares a variable holding "22.5" against a
-         * number correctly, whereas guessing at a numeric conversion here would turn
-         * an id like "007" into 7.
-         */
         @JvmStatic
         fun bindMessageToVariables(script: MqttScript, message: ReceivedMqttMessage) {
             script.payloadVariable?.value = message.payload

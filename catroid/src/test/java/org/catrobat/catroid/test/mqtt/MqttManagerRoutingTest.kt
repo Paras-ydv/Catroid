@@ -30,9 +30,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/**
- * Covers routing incoming messages to listeners, including wildcards and queueing.
- */
 class MqttManagerRoutingTest {
 
     private lateinit var fakeClient: FakeMqttClient
@@ -43,8 +40,7 @@ class MqttManagerRoutingTest {
     fun setUp() {
         fakeClient = FakeMqttClient()
         fakeFactory = FakeMqttClientFactory(fakeClient)
-        // same-thread teardown so disconnect stays observable without sleeping
-        manager = MqttManager(fakeFactory) { it.run() }
+        manager = MqttManager(fakeFactory, { it.run() }) { it.run() }
     }
 
     private val defaultConfig = TEST_CONFIG
@@ -55,8 +51,6 @@ class MqttManagerRoutingTest {
         connected()
         fakeClient.deliver(topic, payload)
     }
-
-    // --- topic based listener routing ---
 
     @Test
     fun testDispatchDeliversTopicAndPayloadToRegisteredListener() {
@@ -150,8 +144,6 @@ class MqttManagerRoutingTest {
         assertEquals(1, healthy.received.size)
     }
 
-    // --- wildcard routing ---
-
     @Test
     fun testSingleLevelWildcardListenerReceivesMatchingTopic() {
         val listener = FakeListener()
@@ -213,8 +205,6 @@ class MqttManagerRoutingTest {
         manager.dispatchPendingMessages()
         assertEquals(listOf("home/light/state" to "ON"), listener.received)
     }
-
-    // --- incoming message queue ---
 
     @Test
     fun testBrokerMessageIsQueuedNotRoutedImmediately() {
@@ -283,8 +273,6 @@ class MqttManagerRoutingTest {
         }
     }
 
-    // --- listener lifetime across stage runs ---
-
     @Test
     fun testDisconnectDropsRegisteredListeners() {
         val listener = FakeListener()
@@ -314,11 +302,6 @@ class MqttManagerRoutingTest {
         assertTrue(listener.received.isEmpty())
     }
 
-    /**
-     * The manager outlives any single stage. Without teardown on disconnect, the
-     * listeners of earlier runs stay registered and every message is delivered
-     * once per run that ever started.
-     */
     @Test
     fun testListenersOfEarlierRunsStopReceiving() {
         val earlierRuns = (1..3).map { FakeListener() }

@@ -31,9 +31,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/**
- * Covers connection lifecycle: connect, disconnect, URI and option building.
- */
 class MqttManagerConnectionTest {
 
     private lateinit var fakeClient: FakeMqttClient
@@ -44,22 +41,17 @@ class MqttManagerConnectionTest {
     fun setUp() {
         fakeClient = FakeMqttClient()
         fakeFactory = FakeMqttClientFactory(fakeClient)
-        // same-thread teardown so disconnect stays observable without sleeping
-        manager = MqttManager(fakeFactory) { it.run() }
+        manager = MqttManager(fakeFactory, { it.run() }) { it.run() }
     }
 
     private val defaultConfig = TEST_CONFIG
 
     private fun connected(): MqttManager = manager.also { it.connect(defaultConfig) }
 
-    // --- Initial state ---
-
     @Test
     fun testIsNotConnectedInitially() {
         assertFalse(manager.isConnected)
     }
-
-    // --- connect() ---
 
     @Test
     fun testConnectReturnsTrueOnSuccess() {
@@ -142,8 +134,6 @@ class MqttManagerConnectionTest {
         assertFalse(fakeClient.closeCalled)
     }
 
-    // --- URI building ---
-
     @Test
     fun testBuildServerUriWithoutTlsUsesTcpScheme() {
         assertTrue(manager.buildServerUri("localhost", 1883, false).startsWith("tcp://"))
@@ -163,8 +153,6 @@ class MqttManagerConnectionTest {
     fun testBuildServerUriSslFullUri() {
         assertEquals("ssl://broker.test.com:8883", manager.buildServerUri("broker.test.com", 8883, true))
     }
-
-    // --- ConnectOptions building ---
 
     @Test
     fun testBuildConnectOptionsUsesCleanSession() {
@@ -194,8 +182,6 @@ class MqttManagerConnectionTest {
     fun testBuildConnectOptionsDoesNotSetUsernameWhenBlank() {
         assertEquals(null, manager.buildConnectOptions("   ", "").userName)
     }
-
-    // --- disconnect() ---
 
     @Test
     fun testDisconnectCallsClientDisconnect() {
@@ -239,22 +225,14 @@ class MqttManagerConnectionTest {
         manager.connect(defaultConfig)
         manager.disconnect()
         manager.disconnect()
-        // no exception = pass
     }
 
-    // --- teardown must not block the caller ---
-
-    /**
-     * disconnect() runs on the UI thread from StageActivity.manageLoadAndFinish().
-     * Paho blocks there until the broker acknowledges, so a broker that has gone
-     * away used to freeze the stage on a blank screen with no way out.
-     */
     @Test
     fun testDisconnectDoesNotWaitForABlockingClient() {
         val blocker = java.util.concurrent.CountDownLatch(1)
         val slowClient = FakeMqttClient()
         slowClient.onDisconnect = { blocker.await(5, java.util.concurrent.TimeUnit.SECONDS) }
-        val backgroundManager = MqttManager(FakeMqttClientFactory(slowClient))
+        val backgroundManager = MqttManager(FakeMqttClientFactory(slowClient), { it.run() })
         backgroundManager.connect(TEST_CONFIG)
 
         val startedAt = System.currentTimeMillis()
@@ -271,14 +249,13 @@ class MqttManagerConnectionTest {
         val blocker = java.util.concurrent.CountDownLatch(1)
         val slowClient = FakeMqttClient()
         slowClient.onDisconnect = { blocker.await(5, java.util.concurrent.TimeUnit.SECONDS) }
-        val backgroundManager = MqttManager(FakeMqttClientFactory(slowClient))
+        val backgroundManager = MqttManager(FakeMqttClientFactory(slowClient), { it.run() })
         backgroundManager.connect(TEST_CONFIG)
         backgroundManager.subscribe(TEST_CONFIG, "home/light")
         backgroundManager.register("home/light", FakeListener())
 
         backgroundManager.disconnect()
 
-        // ready for the next stage run immediately, without waiting on the socket
         assertTrue(backgroundManager.activeSubscriptions.isEmpty())
         assertTrue(backgroundManager.registeredTopics.isEmpty())
         assertFalse(backgroundManager.isConnected)

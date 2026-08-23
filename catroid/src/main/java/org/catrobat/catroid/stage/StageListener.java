@@ -181,8 +181,11 @@ public class StageListener implements ApplicationListener {
 		webConnectionHolder = new WebConnectionHolder();
 	}
 
+	private MqttManager mqttManager;
+
 	@Override
 	public void create() {
+		mqttManager = get(MqttManager.class);
 		deltaActionTimeDivisor = 10f;
 
 		shapeRenderer = new ShapeRenderer();
@@ -583,9 +586,7 @@ public class StageListener implements ApplicationListener {
 		}
 
 		if (!paused) {
-			// Hand messages buffered by the MQTT network thread to their listeners here,
-			// so scripts are triggered on the render thread like every other event.
-			get(MqttManager.class).dispatchPendingMessages();
+			mqttManager.dispatchPendingMessages();
 
 			float deltaTime = Gdx.graphics.getDeltaTime();
 

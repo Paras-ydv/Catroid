@@ -534,16 +534,12 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 
 	private void connectMqttBroker() {
 		MqttConnectionConfig config = MqttConnectionConfig.Companion.fromContext(stageActivity);
-		// Paho's connect blocks until the broker answers or the timeout expires, so it
-		// must not run on the UI thread. The resource callbacks are posted back because
-		// finishing initialisation touches the stage.
+		// Paho's connect blocks until the broker answers or times out, so it must not
+		// run on the UI thread.
 		new Thread(() -> {
 			MqttManager mqttManager = get(MqttManager.class);
 			boolean connected = mqttManager.connect(config);
 			if (connected) {
-				// Subscribe before the stage starts: MQTT delivers nothing that was
-				// published before the subscription existed, so a receive script that
-				// subscribed lazily would miss the messages it was waiting for.
 				Project project = ProjectManager.getInstance().getCurrentProject();
 				new MqttScriptRegistrar(mqttManager, config).registerScriptsOf(project);
 				startMqttMultiplayer(project, config);
@@ -558,16 +554,6 @@ public class StageResourceHolder implements GatherCollisionInformationTask.OnPol
 		}, "MqttConnect").start();
 	}
 
-	/**
-	 * Starts MQTT multiplayer only for projects that actually declare multiplayer
-	 * variables, so an ordinary MQTT project does not join a room or produce traffic
-	 * it never asked for.
-	 *
-	 * The room is derived from the project name because every player runs the same
-	 * project, and Catroid has no separate room configuration to read. The sender id
-	 * is the MQTT client id, which is unique per device and is what lets a client
-	 * ignore the echo of its own publishes.
-	 */
 	private void startMqttMultiplayer(Project project, MqttConnectionConfig config) {
 		if (project.getMultiplayerVariables().isEmpty()) {
 			return;
