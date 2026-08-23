@@ -33,15 +33,6 @@ data class PendingPublish(
     val retained: Boolean
 )
 
-/**
- * Holds messages a script published while the broker was unreachable, so a brief
- * network drop does not silently lose them.
- *
- * The queue is bounded: a script publishing in a loop while offline would
- * otherwise grow it without limit. At capacity the oldest message is dropped,
- * because for the state-reporting traffic these bricks carry the newest value is
- * the one worth keeping.
- */
 class MqttPublishQueue(private val capacity: Int = DEFAULT_CAPACITY) {
 
     private val queue = LinkedBlockingQueue<PendingPublish>(capacity)
@@ -58,20 +49,17 @@ class MqttPublishQueue(private val capacity: Int = DEFAULT_CAPACITY) {
         }
     }
 
-    /**
-     * Removes and returns everything buffered, oldest first, so a flush preserves
-     * the order in which the script published.
-     */
     fun drain(): List<PendingPublish> {
         val drained = mutableListOf<PendingPublish>()
         queue.drainTo(drained)
         return drained
     }
 
-    /** Puts a message back at the head after a failed flush attempt. */
     fun requeueAll(messages: List<PendingPublish>) {
         val remaining = drain()
-        (messages + remaining).forEach { enqueue(it) }
+        // Head first: these are the messages that never reached the broker, so
+        // enqueue's drop-oldest rule must not discard them.
+        (messages + remaining).take(capacity).forEach { enqueue(it) }
     }
 
     fun clear() = queue.clear()

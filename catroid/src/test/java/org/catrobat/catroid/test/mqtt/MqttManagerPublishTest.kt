@@ -30,9 +30,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/**
- * Covers publishing and the offline publish queue.
- */
 class MqttManagerPublishTest {
 
     private lateinit var fakeClient: FakeMqttClient
@@ -43,15 +40,12 @@ class MqttManagerPublishTest {
     fun setUp() {
         fakeClient = FakeMqttClient()
         fakeFactory = FakeMqttClientFactory(fakeClient)
-        // same-thread teardown so disconnect stays observable without sleeping
-        manager = MqttManager(fakeFactory) { it.run() }
+        manager = MqttManager(fakeFactory, { it.run() }) { it.run() }
     }
 
     private val defaultConfig = TEST_CONFIG
 
     private fun connected(): MqttManager = manager.also { it.connect(defaultConfig) }
-
-    // --- publish() ---
 
     @Test
     fun testPublishReturnsTrueOnSuccess() {
@@ -123,10 +117,11 @@ class MqttManagerPublishTest {
     }
 
     @Test
-    fun testPublishLazilyConnectsWhenDisconnected() {
+    fun testPublishQueuesRatherThanConnectingWhenDisconnected() {
         assertTrue(manager.publish(defaultConfig, "home/light", "ON"))
-        assertTrue(fakeClient.connectCalled)
-        assertTrue(fakeClient.publishCalled)
+        assertFalse(fakeClient.connectCalled)
+        assertFalse(fakeClient.publishCalled)
+        assertEquals(1, manager.pendingPublishCount)
     }
 
     @Test
@@ -138,13 +133,12 @@ class MqttManagerPublishTest {
     }
 
     @Test
-    fun testPublishReturnsFalseWhenClientThrows() {
+    fun testPublishIsRequeuedWhenClientThrows() {
         connected()
         fakeClient.throwOnPublish = true
-        assertFalse(manager.publish(defaultConfig, "home/light", "ON"))
+        assertTrue(manager.publish(defaultConfig, "home/light", "ON"))
+        assertEquals(1, manager.pendingPublishCount)
     }
-
-    // --- offline publish queue ---
 
     @Test
     fun testPublishIsQueuedWhenBrokerUnreachable() {
@@ -218,5 +212,12 @@ class MqttManagerPublishTest {
         fakeClient.throwOnPublish = true
         manager.connect(defaultConfig)
         assertEquals(2, manager.pendingPublishCount)
+    }
+    @Test
+    fun testPublishRejectsTopicsTheBrokerWouldRefuse() {
+        connected()
+        assertFalse(manager.publish(defaultConfig, "home/+/light", "ON"))
+        assertFalse(manager.publish(defaultConfig, "home/#", "ON"))
+        assertFalse(fakeClient.publishCalled)
     }
 }

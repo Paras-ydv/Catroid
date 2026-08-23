@@ -33,19 +33,29 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 
 class PahoMqttClient(brokerUrl: String, clientId: String) : MqttClientInterface {
     private val client = MqttClient(brokerUrl, clientId, MemoryPersistence())
+
+    init {
+        // Paho waits forever by default, so an unacknowledged publish never returns.
+        client.timeToWait = MAX_WAIT_MILLIS
+    }
+
     override val isConnected get() = client.isConnected
     override fun connect(options: MqttConnectOptions) = client.connect(options)
-    /**
-     * Bounded so a broker that has gone away cannot hold the caller for Paho's
-     * 30 second default. If the polite disconnect does not complete in time, the
-     * connection is dropped outright: the stage is ending either way.
-     */
     override fun disconnect() {
         try {
             client.disconnect(DISCONNECT_QUIESCE_MILLIS)
         } catch (e: MqttException) {
             Log.w(TAG, "Graceful disconnect failed, forcing", e)
+            forceDisconnect()
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun forceDisconnect() {
+        try {
             client.disconnectForcibly(DISCONNECT_QUIESCE_MILLIS, DISCONNECT_QUIESCE_MILLIS)
+        } catch (e: Exception) {
+            Log.w(TAG, "Forced disconnect failed", e)
         }
     }
     override fun close() = client.close()
@@ -57,5 +67,7 @@ class PahoMqttClient(brokerUrl: String, clientId: String) : MqttClientInterface 
     companion object {
         private val TAG = PahoMqttClient::class.java.simpleName
         private const val DISCONNECT_QUIESCE_MILLIS = 1000L
+
+        private const val MAX_WAIT_MILLIS = 5000L
     }
 }

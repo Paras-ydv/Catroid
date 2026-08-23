@@ -37,30 +37,33 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class MqttManager(
     private val clientFactory: MqttClientFactory = DefaultMqttClientFactory,
-    /**
-     * Runs the socket teardown. Defaults to a background thread because Paho blocks
-     * while disconnecting; tests substitute a same-thread executor so teardown stays
-     * observable without sleeping.
-     */
+    private val publishExecutor: Executor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "MqttPublish").apply { isDaemon = true }
+    },
     private val teardownExecutor: Executor = Executor { runnable ->
         Thread(runnable, "MqttDisconnect").apply { isDaemon = true }.start()
     }
 ) {
 
-    @Volatile
-    private var mqttClient: MqttClientInterface? = null
+    private val clientRef = AtomicReference<MqttClientInterface?>(null)
 
-    /** Subscriptions live on the current broker session and are lost when it ends. */
+    private var mqttClient: MqttClientInterface?
+        get() = clientRef.get()
+        set(value) = clientRef.set(value)
+
+    // Cleared by disconnect() so a connect still in flight cannot revive a stage
+    // the user has already left.
+    @Volatile
+    private var sessionOpen = true
+
     private val subscriptions = ConcurrentHashMap<String, Int>()
 
-    /**
-     * What the app asked to be subscribed to, independent of any session. Survives
-     * dropped connections and failed reconnect attempts, so recovery still knows
-     * what to restore after the broker has been unreachable for a while.
-     */
+    // Survives dropped connections, unlike subscriptions, so a failed reconnect
+    // still knows what to restore.
     private val desiredSubscriptions = ConcurrentHashMap<String, Int>()
 
     internal val activeSubscriptions: Set<String> get() = subscriptions.keys.toSet()
@@ -75,7 +78,6 @@ class MqttManager(
     @Volatile
     private var reconnectAttempt = 0
 
-    /** Disabled by disconnect() so an intentional teardown is not undone. */
     @Volatile
     private var autoReconnectEnabled = true
 
@@ -88,11 +90,7 @@ class MqttManager(
 
     internal val pendingPublishCount: Int get() = outgoingMessages.size
 
-    /**
-     * Drains everything the network thread has buffered and routes it to the
-     * registered listeners. Must be called from the thread that is allowed to
-     * touch Catroid state, which is the render thread while a stage is running.
-     */
+    // Must run on the render thread: this is where scripts and variables are touched.
     fun dispatchPendingMessages() {
         incomingMessages.drain().forEach { dispatchMessage(it.topic, it.payload) }
     }
@@ -103,11 +101,6 @@ class MqttManager(
 
     internal val registeredTopics: Set<String> get() = listeners.keys.toSet()
 
-    /**
-     * Registers [listener] for messages arriving on [topic]. Registration is
-     * independent of the broker subscription: callers subscribe so the broker
-     * delivers the topic, and register so the delivered message reaches them.
-     */
     fun register(topic: String, listener: MqttListener) {
         if (topic.isBlank()) {
             Log.e(TAG, "Cannot register listener: topic is blank")
@@ -127,24 +120,12 @@ class MqttManager(
         if (topicListeners.remove(listener)) {
             Log.d(TAG, "Listener unregistered from '$topic'")
         }
-        // Drop the topic entry once its last listener is gone so routing does not
-        // accumulate empty sets over repeated stage restarts.
         if (topicListeners.isEmpty()) {
             listeners.remove(topic, topicListeners)
             wildcardFilters.remove(topic)
         }
     }
 
-    /**
-     * Routes a received message to every listener whose filter matches its topic.
-     *
-     * Exact filters resolve through a single map lookup. Wildcard filters require
-     * comparing the topic against each one, so they are kept in a separate set and
-     * only that smaller collection is scanned.
-     *
-     * A listener that throws must not prevent the remaining listeners from seeing
-     * the message, so failures are contained per listener.
-     */
     internal fun dispatchMessage(topic: String, payload: String) {
         var delivered = false
         listeners[topic]?.forEach { listener ->
@@ -194,17 +175,19 @@ class MqttManager(
 
     fun connectFromContext(context: Context) = connect(MqttConnectionConfig.fromContext(context))
 
-    /**
-     * Establishes a connection at the caller's request, which also re-enables
-     * automatic retrying after an earlier disconnect turned it off.
-     */
     fun connect(config: MqttConnectionConfig): Boolean {
+        sessionOpen = true
         autoReconnectEnabled = true
         return establishConnection(config)
     }
 
-    private fun establishConnection(config: MqttConnectionConfig): Boolean = synchronized(this) {
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
+    internal fun establishConnection(config: MqttConnectionConfig): Boolean = synchronized(this) {
         if (isConnected) return true
+        if (!sessionOpen) {
+            Log.d(TAG, "Session already ended, not connecting")
+            return false
+        }
         if (config.host.isBlank()) {
             Log.e(TAG, "Cannot connect: host is blank")
             return false
@@ -217,18 +200,22 @@ class MqttManager(
                 Log.e(TAG, "Failed to close stale client before reconnect", e)
             }
             mqttClient = null
-            // The new client starts a fresh broker session with no subscriptions.
-            // desiredSubscriptions still remembers them, and they are re-issued below.
             subscriptions.clear()
         }
         return try {
             val brokerUrl = buildServerUri(config.host, config.port, config.useTls)
-            val resolvedClientId = config.clientId.ifEmpty { MqttClient.generateClientId() }
+            val resolvedClientId = config.clientId.ifBlank { MqttClient.generateClientId() }
             val client = clientFactory.create(brokerUrl, resolvedClientId).also { mqttClient = it }
             client.setCallback(callback)
             client.connect(buildConnectOptions(config.username, config.password))
             val connected = client.isConnected
             Log.d(TAG, "Connect result for clientId=$resolvedClientId at $brokerUrl: connected=$connected")
+            if (connected && !sessionOpen) {
+                Log.d(TAG, "Session ended during connect, discarding the new client")
+                closeQuietly(client)
+                mqttClient = null
+                return false
+            }
             if (connected) {
                 lastConfig = config
                 reconnectAttempt = 0
@@ -238,13 +225,23 @@ class MqttManager(
             connected
         } catch (e: MqttException) {
             Log.e(TAG, "Failed to connect to ${config.host}:${config.port}", e)
-            try {
-                mqttClient?.close()
-            } catch (closeEx: MqttException) {
-                Log.e(TAG, "Failed to close client after connect error", closeEx)
-            }
+            closeQuietly(mqttClient)
             mqttClient = null
             false
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "Broker address '${config.host}:${config.port}' is not usable", e)
+            closeQuietly(mqttClient)
+            mqttClient = null
+            false
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun closeQuietly(client: MqttClientInterface?) {
+        try {
+            client?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to close client", e)
         }
     }
 
@@ -267,8 +264,8 @@ class MqttManager(
             Log.e(TAG, "Cannot publish: topic is blank")
             return false
         }
-        if (topic.contains(MULTI_LEVEL_WILDCARD) || topic.contains(SINGLE_LEVEL_WILDCARD)) {
-            Log.e(TAG, "Cannot publish: topic contains wildcard characters")
+        if (!MqttTopicMatcher.isValidTopicName(topic)) {
+            Log.e(TAG, "Cannot publish: '$topic' is not a valid topic name")
             return false
         }
         if (qos !in MIN_QOS..MAX_QOS) {
@@ -276,33 +273,30 @@ class MqttManager(
             return false
         }
         val pending = PendingPublish(topic, payload, qos, retained)
-        if (!isConnected && !connect(config)) {
+        val client = mqttClient
+        if (!isConnected || client == null) {
             Log.w(TAG, "Broker unreachable, queueing message for '$topic'")
             outgoingMessages.enqueue(pending)
             return true
         }
-        val client = mqttClient ?: run {
-            Log.w(TAG, "No client available, queueing message for '$topic'")
-            outgoingMessages.enqueue(pending)
-            return true
-        }
-        return try {
-            client.publish(topic, buildMessage(payload, qos, retained))
-            Log.d(TAG, "Published message to '$topic'")
-            true
+        // Off the caller's thread: a QoS 1 or 2 publish waits for the broker, and the
+        // publish brick runs on the render thread.
+        publishExecutor.execute { sendOrQueue(client, pending) }
+        return true
+    }
+
+    private fun sendOrQueue(client: MqttClientInterface, pending: PendingPublish) {
+        try {
+            client.publish(pending.topic, buildMessage(pending.payload, pending.qos, pending.retained))
+            Log.d(TAG, "Published message to '${pending.topic}'")
         } catch (e: MqttException) {
-            // The connection most likely dropped mid-publish, so keep the message for
-            // the next successful connect instead of losing it.
-            Log.e(TAG, "Failed to publish to '$topic', queueing for retry", e)
+            Log.e(TAG, "Failed to publish to '${pending.topic}', queueing for retry", e)
             outgoingMessages.enqueue(pending)
-            false
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "Broker rejected the topic '${pending.topic}', dropping message", e)
         }
     }
 
-    /**
-     * Re-issues the subscriptions that belonged to the previous session. Called
-     * after a reconnect, since a clean session starts the broker with none.
-     */
     private fun restoreSubscriptions(topics: Map<String, Int>) {
         if (topics.isEmpty()) {
             return
@@ -319,13 +313,6 @@ class MqttManager(
         }
     }
 
-    /**
-     * Sends everything buffered while offline, oldest first.
-     *
-     * A message is only considered delivered once the client accepted it. If the
-     * connection drops again part way through, the remainder goes back on the
-     * queue so the flush resumes rather than losing the tail.
-     */
     private fun flushOutgoingMessages() {
         if (outgoingMessages.isEmpty()) {
             return
@@ -352,16 +339,22 @@ class MqttManager(
             Log.e(TAG, "Cannot subscribe: topic is blank")
             return false
         }
+        if (!MqttTopicMatcher.isValidFilter(topic)) {
+            Log.e(TAG, "Cannot subscribe: '$topic' is not a valid topic filter")
+            return false
+        }
         if (qos !in MIN_QOS..MAX_QOS) {
             Log.e(TAG, "Cannot subscribe: invalid QoS value $qos")
             return false
         }
         subscriptions[topic]?.let { existingQos ->
-            Log.d(TAG, "Already subscribed to '$topic' with QoS $existingQos, ignoring duplicate")
-            return true
+            if (existingQos >= qos) {
+                Log.d(TAG, "Already subscribed to '$topic' with QoS $existingQos, ignoring duplicate")
+                return true
+            }
+            Log.d(TAG, "Upgrading '$topic' from QoS $existingQos to $qos")
         }
-        // Wildcards are valid here, unlike for publish.
-        if (!isConnected && !connect(config)) {
+        if (!isConnected && !establishConnection(config)) {
             Log.e(TAG, "Cannot subscribe: connection failed")
             return false
         }
@@ -377,6 +370,9 @@ class MqttManager(
             true
         } catch (e: MqttException) {
             Log.e(TAG, "Failed to subscribe to '$topic'", e)
+            false
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "Broker rejected the topic filter '$topic'", e)
             false
         }
     }
@@ -403,6 +399,9 @@ class MqttManager(
         } catch (e: MqttException) {
             Log.e(TAG, "Failed to unsubscribe from '$topic'", e)
             false
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "Broker rejected the topic filter '$topic'", e)
+            false
         }
     }
 
@@ -413,35 +412,18 @@ class MqttManager(
         }
 
     fun disconnect() {
-        // Stop retrying first: a reconnect scheduled by a drop must not resurrect a
-        // connection the user just ended by leaving the stage.
+        sessionOpen = false
         autoReconnectEnabled = false
-        // Listeners belong to the run that registered them. The manager outlives any
-        // single stage, so keeping them would mean a second run of the same project
-        // delivers every message twice, a third run three times, and so on. Cleared
-        // before the client guard because a run that failed to connect still
-        // registered its listeners.
+        reconnectAttempt = 0
         listeners.clear()
         wildcardFilters.clear()
         subscriptions.clear()
         desiredSubscriptions.clear()
         incomingMessages.clear()
-        // An intentional disconnect ends the session, so queued messages are dropped
-        // rather than replayed into an unrelated later run.
         outgoingMessages.clear()
 
-        val client = synchronized(this) {
-            mqttClient.also { mqttClient = null }
-        } ?: return
+        val client = clientRef.getAndSet(null) ?: return
 
-        // Closing the socket is handed off rather than done here. Paho's disconnect
-        // blocks until the broker acknowledges, and when the broker has gone away it
-        // blocks for the full quiesce timeout. disconnect() is called from
-        // StageActivity.manageLoadAndFinish() on the UI thread, so doing it inline
-        // freezes the stage on a blank screen and the user cannot even leave.
-        //
-        // All state above is cleared synchronously, so the manager is immediately
-        // ready for the next stage run regardless of how long the socket takes.
         teardownExecutor.execute {
             try {
                 client.disconnect()
@@ -467,23 +449,12 @@ class MqttManager(
         }
     }
 
-    /**
-     * Waits before each reconnect attempt, doubling the delay so a broker that is
-     * down does not get hammered and the phone's radio is not kept awake retrying
-     * in a tight loop. The delay is capped so recovery still happens promptly once
-     * the broker returns.
-     */
     internal fun backoffDelayMillis(attempt: Int): Long {
         val exponent = attempt.coerceAtLeast(0).coerceAtMost(MAX_BACKOFF_EXPONENT)
         val delay = INITIAL_BACKOFF_MILLIS shl exponent
         return delay.coerceAtMost(MAX_BACKOFF_MILLIS)
     }
 
-    /**
-     * Reconnects using the configuration of the last successful connection,
-     * restoring subscriptions and flushing queued publishes as a side effect of
-     * connect(). Returns false when there is nothing to reconnect to.
-     */
     internal fun reconnectNow(): Boolean {
         if (!autoReconnectEnabled) {
             Log.d(TAG, "Auto reconnect disabled, skipping reconnect")
@@ -493,8 +464,6 @@ class MqttManager(
             Log.d(TAG, "No previous configuration, skipping reconnect")
             return false
         }
-        // Deliberately not connect(): that would re-enable retrying, so a task queued
-        // before disconnect() would restart the very loop disconnect() switched off.
         return establishConnection(config)
     }
 
@@ -510,7 +479,6 @@ class MqttManager(
         val delay = backoffDelayMillis(attempt)
         Log.d(TAG, "Scheduling reconnect attempt ${attempt + 1} in ${delay}ms")
         reconnectExecutor.schedule({
-            // The stage may have ended while this was waiting in the queue.
             if (autoReconnectEnabled && !isConnected && reconnectNow().not()) {
                 scheduleReconnect()
             }
@@ -523,12 +491,10 @@ class MqttManager(
             scheduleReconnect()
         }
         override fun messageArrived(topic: String, message: MqttMessage) {
-            // Runs on the Paho network thread: buffer only, never route from here.
             incomingMessages.enqueue(
                 ReceivedMqttMessage(topic, String(message.payload, Charsets.UTF_8))
             )
         }
-        // Delivery tokens are not used until publish is implemented in a later ticket.
         override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
     }
 }
